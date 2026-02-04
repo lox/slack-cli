@@ -14,24 +14,44 @@ Or build from source:
 task
 ```
 
-## Authentication
+## Setup
 
-```bash
-slack auth login
-```
+Each workspace requires a Slack app. Create one using the included manifest:
 
-This opens your browser for Slack OAuth. Approve the permissions and you're logged in.
-
-### Using your own Slack App
-
-To use your own Slack app instead of the default:
-
-1. Create an app at https://api.slack.com/apps using `slack-app-manifest.yaml`
-2. Set environment variables:
+1. Go to https://api.slack.com/apps → **Create New App** → **From an app manifest**
+2. Select your workspace
+3. Paste the contents of `slack-app-manifest.yaml`
+4. Click **Create**
+5. From **Basic Information**, copy the **Client ID** and **Client Secret**
+6. Add to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.):
    ```bash
    export SLACK_CLIENT_ID="your-client-id"
    export SLACK_CLIENT_SECRET="your-client-secret"
    ```
+7. Authenticate:
+   ```bash
+   slack auth login
+   ```
+
+This opens your browser for OAuth. Approve the permissions and you're logged in.
+
+### Multiple workspaces
+
+To use multiple workspaces, create an app in each and switch credentials:
+
+```bash
+# Workspace A
+export SLACK_CLIENT_ID="workspace-a-id"
+export SLACK_CLIENT_SECRET="workspace-a-secret"
+slack auth login
+
+# Workspace B (re-export and re-login)
+export SLACK_CLIENT_ID="workspace-b-id"
+export SLACK_CLIENT_SECRET="workspace-b-secret"
+slack auth login
+```
+
+Currently the CLI stores one token at a time. Multi-workspace support may be added in future.
 
 ## Usage
 
