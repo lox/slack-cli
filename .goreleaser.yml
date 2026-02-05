@@ -12,6 +12,7 @@ builds:
       - arm64
     ldflags:
       - -s -w -X main.version={{.Version}}
+    binary: slack
 
 archives:
   - format: tar.gz
@@ -24,6 +25,14 @@ archives:
     format_overrides:
       - goos: windows
         format: zip
+
+brews:
+  - repository:
+      owner: lox
+      name: homebrew-tap
+    homepage: https://github.com/lox/slack-cli
+    description: CLI for Slack - search messages, read threads/channels, lookup users
+    license: MIT
 
 checksum:
   name_template: "checksums.txt"

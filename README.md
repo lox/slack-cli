@@ -4,11 +4,23 @@ A CLI for Slack - search, read channels/threads, and browse users from the comma
 
 ## Installation
 
+### Homebrew
+
+```bash
+brew install lox/tap/slack
+```
+
+### Go
+
 ```bash
 go install github.com/lox/slack-cli@latest
 ```
 
-Or build from source:
+### Binaries
+
+Download from [releases](https://github.com/lox/slack-cli/releases/latest).
+
+### From source
 
 ```bash
 git clone https://github.com/lox/slack-cli.git
