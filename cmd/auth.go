@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -11,8 +12,10 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
+	"github.com/lox/slack-cli/internal/config"
 	"github.com/lox/slack-cli/internal/slack"
 )
 
@@ -21,13 +24,20 @@ const (
 	oauthRedirectURL  = "http://localhost:" + oauthRedirectPort + "/callback"
 )
 
-func getOAuthCredentials() (clientID, clientSecret string, err error) {
+func getOAuthCredentials(cfg *config.Config) (clientID, clientSecret string, err error) {
+	// Check env vars first (override config)
 	clientID = os.Getenv("SLACK_CLIENT_ID")
 	clientSecret = os.Getenv("SLACK_CLIENT_SECRET")
-	if clientID == "" || clientSecret == "" {
-		return "", "", fmt.Errorf("SLACK_CLIENT_ID and SLACK_CLIENT_SECRET environment variables must be set")
+	if clientID != "" && clientSecret != "" {
+		return clientID, clientSecret, nil
 	}
-	return clientID, clientSecret, nil
+
+	// Fall back to config file
+	if cfg.ClientID != "" && cfg.ClientSecret != "" {
+		return cfg.ClientID, cfg.ClientSecret, nil
+	}
+
+	return "", "", fmt.Errorf("Slack app not configured. Run 'slack auth config' to set up")
 }
 
 func generateOAuthState() (string, error) {
@@ -50,15 +60,64 @@ var oauthScopes = []string{
 }
 
 type AuthCmd struct {
+	Config AuthConfigCmd `cmd:"" help:"Configure Slack app credentials"`
 	Login  AuthLoginCmd  `cmd:"" help:"Authenticate with Slack via OAuth"`
 	Logout AuthLogoutCmd `cmd:"" help:"Remove stored credentials"`
 	Status AuthStatusCmd `cmd:"" help:"Show authentication status"`
 }
 
+type AuthConfigCmd struct{}
+
+func (c *AuthConfigCmd) Run(ctx *Context) error {
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Println("Slack App Configuration")
+	fmt.Println("=======================")
+	fmt.Println()
+	fmt.Println("This CLI requires a Slack app for OAuth authentication.")
+	fmt.Println()
+	fmt.Println("To create an app:")
+	fmt.Println("1. Go to https://api.slack.com/apps")
+	fmt.Println("2. Click 'Create New App' > 'From a manifest'")
+	fmt.Println("3. Select your workspace")
+	fmt.Println("4. Paste the manifest from: https://github.com/lox/slack-cli/blob/main/slack-app-manifest.yaml")
+	fmt.Println("5. Click 'Create'")
+	fmt.Println("6. Go to 'Basic Information' to find your credentials")
+	fmt.Println()
+
+	fmt.Print("Client ID: ")
+	clientID, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read input: %w", err)
+	}
+	clientID = strings.TrimSpace(clientID)
+
+	fmt.Print("Client Secret: ")
+	clientSecret, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read input: %w", err)
+	}
+	clientSecret = strings.TrimSpace(clientSecret)
+
+	if clientID == "" || clientSecret == "" {
+		return fmt.Errorf("client ID and secret are required")
+	}
+
+	ctx.Config.ClientID = clientID
+	ctx.Config.ClientSecret = clientSecret
+	if err := ctx.Config.Save(); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	fmt.Println()
+	fmt.Println("Configuration saved. Run 'slack auth login' to authenticate.")
+	return nil
+}
+
 type AuthLoginCmd struct{}
 
 func (c *AuthLoginCmd) Run(ctx *Context) error {
-	clientID, clientSecret, err := getOAuthCredentials()
+	clientID, clientSecret, err := getOAuthCredentials(ctx.Config)
 	if err != nil {
 		return err
 	}

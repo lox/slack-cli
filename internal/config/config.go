@@ -7,8 +7,10 @@ import (
 )
 
 type Config struct {
-	Token string `json:"token,omitempty"`
-	path  string
+	Token        string `json:"token,omitempty"`
+	ClientID     string `json:"client_id,omitempty"`
+	ClientSecret string `json:"client_secret,omitempty"`
+	path         string
 }
 
 func configPath() (string, error) {
