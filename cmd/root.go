@@ -1,9 +1,20 @@
 package cmd
 
-import "github.com/lox/slack-cli/internal/config"
+import (
+	"fmt"
+
+	"github.com/lox/slack-cli/internal/config"
+)
 
 type Context struct {
 	Config *config.Config
+}
+
+func (ctx *Context) RequireAuth() error {
+	if ctx.Config.Token == "" {
+		return fmt.Errorf("not logged in. Run 'slack auth login' first")
+	}
+	return nil
 }
 
 type CLI struct {

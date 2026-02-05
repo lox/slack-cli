@@ -2,7 +2,10 @@ package cmd
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -13,25 +16,26 @@ import (
 	"github.com/lox/slack-cli/internal/slack"
 )
 
-// OAuth app credentials - users of this CLI share this app
-// Override with SLACK_CLIENT_ID and SLACK_CLIENT_SECRET env vars
 const (
-	defaultClientID     = "10456709258641.10443798280178"
-	defaultClientSecret = "63b3702b93b60311b36dbae96e272084"
-	oauthRedirectPort   = "8338"
-	oauthRedirectURL    = "http://localhost:" + oauthRedirectPort + "/callback"
+	oauthRedirectPort = "8338"
+	oauthRedirectURL  = "http://localhost:" + oauthRedirectPort + "/callback"
 )
 
-func getOAuthCredentials() (clientID, clientSecret string) {
+func getOAuthCredentials() (clientID, clientSecret string, err error) {
 	clientID = os.Getenv("SLACK_CLIENT_ID")
-	if clientID == "" {
-		clientID = defaultClientID
-	}
 	clientSecret = os.Getenv("SLACK_CLIENT_SECRET")
-	if clientSecret == "" {
-		clientSecret = defaultClientSecret
+	if clientID == "" || clientSecret == "" {
+		return "", "", fmt.Errorf("SLACK_CLIENT_ID and SLACK_CLIENT_SECRET environment variables must be set")
 	}
-	return
+	return clientID, clientSecret, nil
+}
+
+func generateOAuthState() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // Scopes needed for the CLI
@@ -54,23 +58,37 @@ type AuthCmd struct {
 type AuthLoginCmd struct{}
 
 func (c *AuthLoginCmd) Run(ctx *Context) error {
-	clientID, clientSecret := getOAuthCredentials()
-	if clientID == "" || clientSecret == "" {
-		return fmt.Errorf("OAuth not configured. Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET environment variables, or configure defaults in cmd/auth.go")
+	clientID, clientSecret, err := getOAuthCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Generate CSRF state parameter
+	state, err := generateOAuthState()
+	if err != nil {
+		return fmt.Errorf("failed to generate OAuth state: %w", err)
 	}
 
 	// Create channel to receive the auth code
 	codeChan := make(chan string, 1)
 	errChan := make(chan error, 1)
 
-	// Start local server to handle OAuth callback
-	listener, err := net.Listen("tcp", ":"+oauthRedirectPort)
+	// Start local server to handle OAuth callback (bind to localhost only)
+	listener, err := net.Listen("tcp", "127.0.0.1:"+oauthRedirectPort)
 	if err != nil {
 		return fmt.Errorf("failed to start local server: %w", err)
 	}
 
-	server := &http.Server{}
-	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+	// Use dedicated ServeMux instead of global DefaultServeMux
+	mux := http.NewServeMux()
+	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+		// Verify CSRF state parameter
+		if r.URL.Query().Get("state") != state {
+			http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+			errChan <- fmt.Errorf("OAuth state mismatch - possible CSRF attack")
+			return
+		}
+
 		code := r.URL.Query().Get("code")
 		if code == "" {
 			errMsg := r.URL.Query().Get("error")
@@ -124,13 +142,15 @@ func (c *AuthLoginCmd) Run(ctx *Context) error {
 		codeChan <- code
 	})
 
+	server := &http.Server{Handler: mux}
+
 	go func() {
 		if err := server.Serve(listener); err != http.ErrServerClosed {
 			errChan <- err
 		}
 	}()
 
-	// Build OAuth URL
+	// Build OAuth URL with state parameter
 	scopeStr := ""
 	for i, s := range oauthScopes {
 		if i > 0 {
@@ -139,8 +159,8 @@ func (c *AuthLoginCmd) Run(ctx *Context) error {
 		scopeStr += s
 	}
 	authURL := fmt.Sprintf(
-		"https://slack.com/oauth/v2/authorize?client_id=%s&user_scope=%s&redirect_uri=%s",
-		clientID, scopeStr, oauthRedirectURL,
+		"https://slack.com/oauth/v2/authorize?client_id=%s&user_scope=%s&redirect_uri=%s&state=%s",
+		clientID, scopeStr, oauthRedirectURL, state,
 	)
 
 	fmt.Println("Opening browser for Slack authentication...")
@@ -194,9 +214,12 @@ func openBrowser(url string) {
 		cmd = exec.Command("xdg-open", url)
 	case "windows":
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		log.Printf("Warning: don't know how to open browser on %s", runtime.GOOS)
+		return
 	}
-	if cmd != nil {
-		cmd.Start()
+	if err := cmd.Start(); err != nil {
+		log.Printf("Warning: failed to open browser: %v", err)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 const slackAPIBase = "https://slack.com/api"
@@ -18,8 +19,10 @@ type Client struct {
 
 func NewClient(userToken string) *Client {
 	return &Client{
-		userToken:  userToken,
-		httpClient: &http.Client{},
+		userToken: userToken,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 
@@ -37,6 +40,10 @@ func (c *Client) request(method string, params url.Values) ([]byte, error) {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("slack API returned HTTP %d: %s", resp.StatusCode, resp.Status)
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -284,7 +291,9 @@ func ParseThreadURL(threadURL string) (channel string, threadTS string, err erro
 		return "", "", fmt.Errorf("invalid URL: %w", err)
 	}
 
-	if !strings.Contains(u.Host, "slack.com") {
+	// Strict host check: must be exactly slack.com or a subdomain of slack.com
+	host := strings.ToLower(u.Host)
+	if host != "slack.com" && !strings.HasSuffix(host, ".slack.com") {
 		return "", "", fmt.Errorf("not a Slack URL")
 	}
 

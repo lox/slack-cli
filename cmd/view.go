@@ -16,6 +16,9 @@ type ViewCmd struct {
 	Markdown bool   `help:"Output as markdown instead of terminal formatting" short:"m"`
 	Limit    int    `help:"Maximum messages to show for channels/threads" default:"20"`
 	Raw      bool   `help:"Don't resolve user/channel mentions" short:"r"`
+
+	userCache    map[string]string
+	channelCache map[string]string
 }
 
 type slackURLInfo struct {
@@ -31,7 +34,9 @@ func parseSlackURL(rawURL string) (*slackURLInfo, error) {
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 
-	if !strings.Contains(u.Host, "slack.com") {
+	// Strict host check: must be exactly slack.com or a subdomain of slack.com
+	host := strings.ToLower(u.Host)
+	if host != "slack.com" && !strings.HasSuffix(host, ".slack.com") {
 		return nil, fmt.Errorf("not a Slack URL")
 	}
 
@@ -75,9 +80,13 @@ func parseSlackURL(rawURL string) (*slackURLInfo, error) {
 }
 
 func (c *ViewCmd) Run(ctx *Context) error {
-	if ctx.Config.Token == "" {
-		return fmt.Errorf("not logged in. Run 'slack auth login' first")
+	if err := ctx.RequireAuth(); err != nil {
+		return err
 	}
+
+	// Initialize caches
+	c.userCache = make(map[string]string)
+	c.channelCache = make(map[string]string)
 
 	info, err := parseSlackURL(c.URL)
 	if err != nil {
@@ -175,9 +184,6 @@ func (c *ViewCmd) buildChannelMarkdown(sb *strings.Builder, client *slack.Client
 	}
 }
 
-var userCache = make(map[string]string)
-var channelCache = make(map[string]string)
-
 func (c *ViewCmd) formatText(client *slack.Client, text string) string {
 	if c.Raw {
 		return text
@@ -264,17 +270,17 @@ func (c *ViewCmd) formatText(client *slack.Client, text string) string {
 }
 
 func (c *ViewCmd) resolveChannel(client *slack.Client, channelID string) string {
-	if name, ok := channelCache[channelID]; ok {
+	if name, ok := c.channelCache[channelID]; ok {
 		return name
 	}
 
 	channel, err := client.GetConversationInfo(channelID)
 	if err != nil {
-		channelCache[channelID] = channelID
+		c.channelCache[channelID] = channelID
 		return channelID
 	}
 
-	channelCache[channelID] = channel.Name
+	c.channelCache[channelID] = channel.Name
 	return channel.Name
 }
 
@@ -283,13 +289,13 @@ func (c *ViewCmd) resolveUser(client *slack.Client, userID string) string {
 		return "bot"
 	}
 
-	if name, ok := userCache[userID]; ok {
+	if name, ok := c.userCache[userID]; ok {
 		return name
 	}
 
 	user, err := client.GetUserInfo(userID)
 	if err != nil {
-		userCache[userID] = userID
+		c.userCache[userID] = userID
 		return userID
 	}
 
@@ -301,7 +307,7 @@ func (c *ViewCmd) resolveUser(client *slack.Client, userID string) string {
 		name = user.Name
 	}
 
-	userCache[userID] = name
+	c.userCache[userID] = name
 	return name
 }
 

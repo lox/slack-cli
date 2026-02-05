@@ -18,8 +18,8 @@ type ChannelListCmd struct {
 }
 
 func (c *ChannelListCmd) Run(ctx *Context) error {
-	if ctx.Config.Token == "" {
-		return fmt.Errorf("not logged in. Run 'slack auth login' first")
+	if err := ctx.RequireAuth(); err != nil {
+		return err
 	}
 
 	client := slack.NewClient(ctx.Config.Token)
@@ -45,8 +45,8 @@ type ChannelReadCmd struct {
 }
 
 func (c *ChannelReadCmd) Run(ctx *Context) error {
-	if ctx.Config.Token == "" {
-		return fmt.Errorf("not logged in. Run 'slack auth login' first")
+	if err := ctx.RequireAuth(); err != nil {
+		return err
 	}
 
 	client := slack.NewClient(ctx.Config.Token)
@@ -93,8 +93,8 @@ type ChannelInfoCmd struct {
 }
 
 func (c *ChannelInfoCmd) Run(ctx *Context) error {
-	if ctx.Config.Token == "" {
-		return fmt.Errorf("not logged in. Run 'slack auth login' first")
+	if err := ctx.RequireAuth(); err != nil {
+		return err
 	}
 
 	client := slack.NewClient(ctx.Config.Token)

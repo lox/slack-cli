@@ -16,8 +16,8 @@ type UserListCmd struct {
 }
 
 func (c *UserListCmd) Run(ctx *Context) error {
-	if ctx.Config.Token == "" {
-		return fmt.Errorf("not logged in. Run 'slack auth login' first")
+	if err := ctx.RequireAuth(); err != nil {
+		return err
 	}
 
 	client := slack.NewClient(ctx.Config.Token)
@@ -45,8 +45,8 @@ type UserInfoCmd struct {
 }
 
 func (c *UserInfoCmd) Run(ctx *Context) error {
-	if ctx.Config.Token == "" {
-		return fmt.Errorf("not logged in. Run 'slack auth login' first")
+	if err := ctx.RequireAuth(); err != nil {
+		return err
 	}
 
 	client := slack.NewClient(ctx.Config.Token)

@@ -12,8 +12,8 @@ type SearchCmd struct {
 }
 
 func (c *SearchCmd) Run(ctx *Context) error {
-	if ctx.Config.Token == "" {
-		return fmt.Errorf("not logged in. Run 'slack auth login' first")
+	if err := ctx.RequireAuth(); err != nil {
+		return err
 	}
 
 	client := slack.NewClient(ctx.Config.Token)
