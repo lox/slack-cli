@@ -109,10 +109,10 @@ slack auth logout   # Clear stored token
 An [Amp](https://ampcode.com) skill is included for AI agent integration:
 
 ```bash
-ln -s "$(pwd)/skills/slack-cli" ~/.config/agents/skills/slack-cli
+amp skill add lox/slack-cli
 ```
 
-This enables agents to use the CLI when asked to view Slack URLs, search messages, or look up users.
+This enables agents to use the CLI when asked to view Slack URLs, search messages, or look up users. See the [Amp manual](https://ampcode.com/manual#agent-skills) for more on skills.
 
 ## Required Scopes
 
