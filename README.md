@@ -13,7 +13,7 @@ Or build from source:
 ```bash
 git clone https://github.com/lox/slack-cli.git
 cd slack-cli
-go build .
+mise run build
 ```
 
 ## Setup

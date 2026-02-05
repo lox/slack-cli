@@ -1,0 +1,36 @@
+[tools]
+go = "1.25"
+golangci-lint = "2"
+
+[tasks.build]
+description = "Build the binary"
+run = """
+VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+go build -ldflags "-X main.version=$VERSION" -o slack-cli .
+"""
+
+[tasks.install]
+description = "Install to $GOPATH/bin"
+run = """
+VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+go install -ldflags "-X main.version=$VERSION" .
+"""
+
+[tasks.test]
+description = "Run tests"
+run = "go test -v ./..."
+
+[tasks.lint]
+description = "Run golangci-lint"
+run = "golangci-lint run"
+
+[tasks.clean]
+description = "Clean build artifacts"
+run = """
+rm -f slack-cli
+rm -rf dist/
+"""
+
+[tasks.check]
+description = "Run all checks (build, test, lint)"
+depends = ["build", "test", "lint"]
