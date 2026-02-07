@@ -231,13 +231,13 @@ func (c *AuthLoginCmd) Run(ctx *Context) error {
 	// Wait for callback or timeout
 	select {
 	case code := <-codeChan:
-		server.Shutdown(context.Background())
+		_ = server.Shutdown(context.Background())
 		return c.exchangeCodeForToken(ctx, code, clientID, clientSecret)
 	case err := <-errChan:
-		server.Shutdown(context.Background())
+		_ = server.Shutdown(context.Background())
 		return err
 	case <-time.After(5 * time.Minute):
-		server.Shutdown(context.Background())
+		_ = server.Shutdown(context.Background())
 		return fmt.Errorf("authentication timed out")
 	}
 }
