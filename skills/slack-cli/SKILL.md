@@ -8,16 +8,17 @@ allowed-tools: Bash(slack:*)
 
 A CLI for reading Slack content - messages, threads, channels, and users.
 
-## Prerequisites
+## Installation
 
-The `slack` command must be available on PATH. To check:
+If `slack` is not on PATH, install it:
 
 ```bash
-slack --version
+brew install lox/tap/slack
 ```
 
-If not installed, follow the instructions at:
-https://github.com/lox/slack-cli#installation
+Or: `go install github.com/lox/slack-cli@latest`
+
+See https://github.com/lox/slack-cli for setup instructions (Slack app creation and OAuth).
 
 ## Available Commands
 
