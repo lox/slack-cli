@@ -30,6 +30,7 @@ brews:
   - repository:
       owner: lox
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/lox/slack-cli
     description: CLI for Slack - search messages, read threads/channels, lookup users
     install: |
