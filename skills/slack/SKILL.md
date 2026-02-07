@@ -1,5 +1,5 @@
 ---
-name: slack-cli
+name: slack
 description: Read Slack messages, threads, and channels via CLI. Use when asked to view Slack URLs, search Slack, or look up Slack users.
 allowed-tools: Bash(slack-cli:*)
 ---
