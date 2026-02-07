@@ -318,7 +318,7 @@ func (c *ViewCmd) formatTimestamp(ts string) string {
 	}
 
 	var sec int64
-	fmt.Sscanf(parts[0], "%d", &sec)
+	_, _ = fmt.Sscanf(parts[0], "%d", &sec)
 	t := time.Unix(sec, 0)
 
 	now := time.Now()
