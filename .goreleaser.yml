@@ -15,7 +15,7 @@ builds:
     binary: slack-cli
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
@@ -24,18 +24,22 @@ archives:
       {{- else }}{{ .Arch }}{{ end }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
 
-brews:
-  - repository:
+homebrew_casks:
+  - name: slack-cli
+    repository:
       owner: lox
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/lox/slack-cli
     description: CLI for Slack - search messages, read threads/channels, lookup users
-    install: |
-      bin.install "slack-cli"
-    license: MIT
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/slack-cli"]
+          end
 
 checksum:
   name_template: "checksums.txt"
