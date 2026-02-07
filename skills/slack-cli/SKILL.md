@@ -1,7 +1,7 @@
 ---
 name: slack-cli
 description: Read Slack messages, threads, and channels via CLI. Use when asked to view Slack URLs, search Slack, or look up Slack users.
-allowed-tools: Bash(slack:*)
+allowed-tools: Bash(slack-cli:*)
 ---
 
 # Slack CLI
@@ -10,10 +10,10 @@ A CLI for reading Slack content - messages, threads, channels, and users.
 
 ## Installation
 
-If `slack` is not on PATH, install it:
+If `slack-cli` is not on PATH, install it:
 
 ```bash
-brew install lox/tap/slack
+brew install lox/tap/slack-cli
 ```
 
 Or: `go install github.com/lox/slack-cli@latest`
@@ -23,17 +23,17 @@ See https://github.com/lox/slack-cli for setup instructions (Slack app creation 
 ## Available Commands
 
 ```
-slack view <url>          # View any Slack URL (message, thread, or channel)
-slack search <query>      # Search messages
-slack channel list        # List channels you're a member of
-slack channel read        # Read recent messages from a channel
-slack channel info        # Show channel information
-slack thread read         # Read a thread by URL or channel+timestamp
-slack user list           # List users in the workspace
-slack user info           # Show user information
-slack auth config         # Configure Slack app credentials
-slack auth login          # Authenticate with Slack via OAuth
-slack auth status         # Show authentication status
+slack-cli view <url>          # View any Slack URL (message, thread, or channel)
+slack-cli search <query>      # Search messages
+slack-cli channel list        # List channels you're a member of
+slack-cli channel read        # Read recent messages from a channel
+slack-cli channel info        # Show channel information
+slack-cli thread read         # Read a thread by URL or channel+timestamp
+slack-cli user list           # List users in the workspace
+slack-cli user info           # Show user information
+slack-cli auth config         # Configure Slack app credentials
+slack-cli auth login          # Authenticate with Slack via OAuth
+slack-cli auth status         # Show authentication status
 ```
 
 ## Common Patterns
@@ -41,20 +41,20 @@ slack auth status         # Show authentication status
 ### View a Slack URL the user shared
 
 ```bash
-slack view "https://workspace.slack.com/archives/C123/p1234567890" --markdown
+slack-cli view "https://workspace.slack.com/archives/C123/p1234567890" --markdown
 ```
 
 ### Search for messages
 
 ```bash
-slack search "from:@username keyword"
-slack search "in:#channel-name keyword"
+slack-cli search "from:@username keyword"
+slack-cli search "in:#channel-name keyword"
 ```
 
 ### Read a channel
 
 ```bash
-slack channel read #general --limit 50
+slack-cli channel read #general --limit 50
 ```
 
 ## Discovering Options
@@ -62,9 +62,9 @@ slack channel read #general --limit 50
 To see available subcommands and flags, run `--help` on any command:
 
 ```bash
-slack --help
-slack view --help
-slack search --help
+slack-cli --help
+slack-cli view --help
+slack-cli search --help
 ```
 
 ## Notes

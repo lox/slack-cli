@@ -12,7 +12,7 @@ builds:
       - arm64
     ldflags:
       - -s -w -X main.version={{.Version}}
-    binary: slack
+    binary: slack-cli
 
 archives:
   - format: tar.gz
@@ -32,6 +32,8 @@ brews:
       name: homebrew-tap
     homepage: https://github.com/lox/slack-cli
     description: CLI for Slack - search messages, read threads/channels, lookup users
+    install: |
+      bin.install "slack-cli"
     license: MIT
 
 checksum:

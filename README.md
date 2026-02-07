@@ -7,7 +7,7 @@ A CLI for Slack - search, read channels/threads, and browse users from the comma
 ### Homebrew
 
 ```bash
-brew install lox/tap/slack
+brew install lox/tap/slack-cli
 ```
 
 ### Go
@@ -43,7 +43,7 @@ Each workspace requires a Slack app for OAuth:
 ### 2. Configure the CLI
 
 ```bash
-slack auth config
+slack-cli auth config
 ```
 
 This will prompt you to paste your Client ID and Secret, which are stored in `~/.config/slack-cli/config.json`.
@@ -51,7 +51,7 @@ This will prompt you to paste your Client ID and Secret, which are stored in `~/
 ### 3. Authenticate
 
 ```bash
-slack auth login
+slack-cli auth login
 ```
 
 This opens your browser for OAuth. Approve the permissions and you're logged in.
@@ -63,7 +63,7 @@ For CI or automation, you can use environment variables instead of `auth config`
 ```bash
 export SLACK_CLIENT_ID="your-client-id"
 export SLACK_CLIENT_SECRET="your-client-secret"
-slack auth login
+slack-cli auth login
 ```
 
 Environment variables take precedence over the config file.
@@ -73,47 +73,47 @@ Environment variables take precedence over the config file.
 ### View any Slack URL
 
 ```bash
-slack view <url>                    # View message, thread, or channel
-slack view <url> --markdown         # Output as markdown
+slack-cli view <url>                    # View message, thread, or channel
+slack-cli view <url> --markdown         # Output as markdown
 ```
 
 ### Channels
 
 ```bash
-slack channel list                  # List channels you're in
-slack channel read #general         # Read recent messages
-slack channel info #general         # Show channel details
+slack-cli channel list                  # List channels you're in
+slack-cli channel read #general         # Read recent messages
+slack-cli channel info #general         # Show channel details
 ```
 
 ### Search
 
 ```bash
-slack search "from:@alice project"  # Search messages
-slack search "in:#engineering bug"  # Search in channel
+slack-cli search "from:@alice project"  # Search messages
+slack-cli search "in:#engineering bug"  # Search in channel
 ```
 
 ### Threads
 
 ```bash
-slack thread read <url>                      # Read thread by URL
-slack thread read -c C123 -t 1234567890.123  # Read by channel+ts
+slack-cli thread read <url>                      # Read thread by URL
+slack-cli thread read -c C123 -t 1234567890.123  # Read by channel+ts
 ```
 
 ### Users
 
 ```bash
-slack user list                     # List workspace users
-slack user info U123                # Show user details
-slack user info alice@acme.com      # Lookup by email
+slack-cli user list                     # List workspace users
+slack-cli user info U123                # Show user details
+slack-cli user info alice@acme.com      # Lookup by email
 ```
 
 ### Authentication
 
 ```bash
-slack auth config   # Configure Slack app credentials
-slack auth login    # Authenticate with Slack
-slack auth status   # Check auth status
-slack auth logout   # Clear stored token
+slack-cli auth config   # Configure Slack app credentials
+slack-cli auth login    # Authenticate with Slack
+slack-cli auth status   # Check auth status
+slack-cli auth logout   # Clear stored token
 ```
 
 ## Agent Skill
