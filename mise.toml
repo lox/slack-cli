@@ -51,3 +51,11 @@ git tag "$NEXT"
 git push origin "$NEXT"
 echo "Tagged and pushed $NEXT — release workflow will run on GitHub."
 """
+
+[tasks.install-skill]
+description = "Install the Amp skill globally"
+run = """
+mkdir -p ~/.config/agents/skills/slack
+cp skills/slack/SKILL.md ~/.config/agents/skills/slack/SKILL.md
+echo "Installed skill to ~/.config/agents/skills/slack/"
+"""
