@@ -12,7 +12,7 @@ type Context struct {
 
 func (ctx *Context) RequireAuth() error {
 	if ctx.Config.Token == "" {
-		return fmt.Errorf("not logged in. Run 'slack auth login' first")
+		return fmt.Errorf("not logged in. Run 'slack-cli auth login' first")
 	}
 	return nil
 }
@@ -32,6 +32,6 @@ type VersionCmd struct {
 }
 
 func (c *VersionCmd) Run(ctx *Context) error {
-	println("slack version " + c.Version)
+	println("slack-cli version " + c.Version)
 	return nil
 }

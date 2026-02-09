@@ -37,7 +37,7 @@ func getOAuthCredentials(cfg *config.Config) (clientID, clientSecret string, err
 		return cfg.ClientID, cfg.ClientSecret, nil
 	}
 
-	return "", "", fmt.Errorf("Slack app not configured. Run 'slack auth config' to set up")
+	return "", "", fmt.Errorf("Slack app not configured. Run 'slack-cli auth config' to set up")
 }
 
 func generateOAuthState() (string, error) {
@@ -110,7 +110,7 @@ func (c *AuthConfigCmd) Run(ctx *Context) error {
 	}
 
 	fmt.Println()
-	fmt.Println("Configuration saved. Run 'slack auth login' to authenticate.")
+	fmt.Println("Configuration saved. Run 'slack-cli auth login' to authenticate.")
 	return nil
 }
 
@@ -297,7 +297,7 @@ type AuthStatusCmd struct{}
 
 func (c *AuthStatusCmd) Run(ctx *Context) error {
 	if ctx.Config.Token == "" {
-		fmt.Println("Not logged in. Run 'slack auth login' to authenticate.")
+		fmt.Println("Not logged in. Run 'slack-cli auth login' to authenticate.")
 		return nil
 	}
 
