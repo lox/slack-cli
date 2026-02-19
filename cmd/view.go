@@ -128,7 +128,7 @@ func (c *ViewCmd) buildMarkdown(client *slack.Client, channel *slack.Channel, in
 func (c *ViewCmd) buildThreadMarkdown(sb *strings.Builder, client *slack.Client, info *slackURLInfo) {
 	replies, err := client.GetConversationReplies(info.Channel, info.ThreadTS, c.Limit)
 	if err != nil {
-		sb.WriteString(fmt.Sprintf("Error: %v\n", err))
+		fmt.Fprintf(sb, "Error: %v\n", err)
 		return
 	}
 
@@ -138,17 +138,17 @@ func (c *ViewCmd) buildThreadMarkdown(sb *strings.Builder, client *slack.Client,
 		text := c.formatText(msg.Text)
 
 		if i == 0 {
-			sb.WriteString(fmt.Sprintf("**%s** _%s_\n\n", username, timestamp))
-			sb.WriteString(fmt.Sprintf("%s\n\n", text))
+			fmt.Fprintf(sb, "**%s** _%s_\n\n", username, timestamp)
+			fmt.Fprintf(sb, "%s\n\n", text)
 			if len(replies.Messages) > 1 {
-				sb.WriteString(fmt.Sprintf("---\n\n**%d replies**\n\n", len(replies.Messages)-1))
+				fmt.Fprintf(sb, "---\n\n**%d replies**\n\n", len(replies.Messages)-1)
 			}
 		} else {
-			sb.WriteString(fmt.Sprintf("> **%s** _%s_\n>\n", username, timestamp))
+			fmt.Fprintf(sb, "> **%s** _%s_\n>\n", username, timestamp)
 			// Indent multiline text in blockquote
 			lines := strings.Split(text, "\n")
 			for _, line := range lines {
-				sb.WriteString(fmt.Sprintf("> %s\n", line))
+				fmt.Fprintf(sb, "> %s\n", line)
 			}
 			sb.WriteString("\n")
 		}
@@ -158,7 +158,7 @@ func (c *ViewCmd) buildThreadMarkdown(sb *strings.Builder, client *slack.Client,
 func (c *ViewCmd) buildChannelMarkdown(sb *strings.Builder, client *slack.Client, channelID string) {
 	history, err := client.GetConversationHistory(channelID, c.Limit)
 	if err != nil {
-		sb.WriteString(fmt.Sprintf("Error: %v\n", err))
+		fmt.Fprintf(sb, "Error: %v\n", err)
 		return
 	}
 
@@ -169,11 +169,11 @@ func (c *ViewCmd) buildChannelMarkdown(sb *strings.Builder, client *slack.Client
 		timestamp := c.formatTimestamp(msg.TS)
 		text := c.formatText(msg.Text)
 
-		sb.WriteString(fmt.Sprintf("**%s** _%s_\n\n", username, timestamp))
-		sb.WriteString(fmt.Sprintf("%s\n\n", text))
+		fmt.Fprintf(sb, "**%s** _%s_\n\n", username, timestamp)
+		fmt.Fprintf(sb, "%s\n\n", text)
 
 		if msg.ReplyCount > 0 {
-			sb.WriteString(fmt.Sprintf("_(%d replies)_\n\n", msg.ReplyCount))
+			fmt.Fprintf(sb, "_(%d replies)_\n\n", msg.ReplyCount)
 		}
 		sb.WriteString("---\n\n")
 	}

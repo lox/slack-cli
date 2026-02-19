@@ -39,7 +39,7 @@ func (c *Client) request(method string, params url.Values) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("slack API returned HTTP %d: %s", resp.StatusCode, resp.Status)
@@ -252,7 +252,7 @@ func ExchangeOAuthCode(clientID, clientSecret, code, redirectURI string) (string
 	if err != nil {
 		return "", fmt.Errorf("failed to exchange code: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
