@@ -77,42 +77,51 @@ func (r *Resolver) FormatText(text string) string {
 	result := text
 
 	// Resolve user mentions: <@U123ABC> -> @username
-	for {
-		start := strings.Index(result, "<@")
+	pos := 0
+	for pos < len(result) {
+		start := strings.Index(result[pos:], "<@")
 		if start == -1 {
 			break
 		}
+		start += pos
 		end := strings.Index(result[start:], ">")
 		if end == -1 {
 			break
 		}
 		end += start
 
-		mention := result[start : end+1]
 		userID := result[start+2 : end]
 
-		// Handle <@U123|name> format
+		// Handle <@U123|name> format — keep fallback name
+		var fallbackName string
 		if pipeIdx := strings.Index(userID, "|"); pipeIdx != -1 {
+			fallbackName = userID[pipeIdx+1:]
 			userID = userID[:pipeIdx]
 		}
 
 		displayName := r.ResolveUser(userID)
-		result = strings.Replace(result, mention, "@"+displayName, 1)
+		if displayName == userID && fallbackName != "" {
+			displayName = fallbackName
+		}
+		replacement := "@" + displayName
+		result = result[:start] + replacement + result[end+1:]
+		pos = start + len(replacement)
 	}
 
 	// Resolve channel mentions: <#C123ABC|channel-name> -> #channel-name
-	for {
-		start := strings.Index(result, "<#")
+	pos = 0
+	for pos < len(result) {
+		start := strings.Index(result[pos:], "<#")
 		if start == -1 {
 			break
 		}
+		start += pos
 		end := strings.Index(result[start:], ">")
 		if end == -1 {
 			break
 		}
 		end += start
 
-		mention := result[start : end+1]
 		channelPart := result[start+2 : end]
 
 		var channelName string
@@ -122,31 +131,37 @@ func (r *Resolver) FormatText(text string) string {
 			channelName = r.ResolveChannel(channelPart)
 		}
 
-		result = strings.Replace(result, mention, "#"+channelName, 1)
+		replacement := "#" + channelName
+		result = result[:start] + replacement + result[end+1:]
+		pos = start + len(replacement)
 	}
 
 	// Resolve URL links: <http://example.com|label> -> label (http://example.com)
-	for {
-		start := strings.Index(result, "<http")
+	pos = 0
+	for pos < len(result) {
+		start := strings.Index(result[pos:], "<http")
 		if start == -1 {
 			break
 		}
+		start += pos
 		end := strings.Index(result[start:], ">")
 		if end == -1 {
 			break
 		}
 		end += start
 
-		link := result[start : end+1]
 		linkContent := result[start+1 : end]
 
+		var replacement string
 		if pipeIdx := strings.Index(linkContent, "|"); pipeIdx != -1 {
 			linkURL := linkContent[:pipeIdx]
 			label := linkContent[pipeIdx+1:]
-			result = strings.Replace(result, link, label+" ("+linkURL+")", 1)
+			replacement = label + " (" + linkURL + ")"
 		} else {
-			result = strings.Replace(result, link, linkContent, 1)
+			replacement = linkContent
 		}
+		result = result[:start] + replacement + result[end+1:]
+		pos = start + len(replacement)
 	}
 
 	// Convert emoji shortcodes: :smile: -> 😊
