@@ -114,7 +114,7 @@ func (c *ViewCmd) buildMarkdown(client *slack.Client, channel *slack.Channel, in
 	if channel.IsIM || channel.IsMPIM {
 		channelName = "DM"
 	}
-	sb.WriteString(fmt.Sprintf("# %s\n\n", channelName))
+	fmt.Fprintf(&sb, "# %s\n\n", channelName)
 
 	if info.MessageTS != "" {
 		c.buildThreadMarkdown(&sb, client, info)
