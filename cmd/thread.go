@@ -23,6 +23,7 @@ func (c *ThreadReadCmd) Run(ctx *Context) error {
 	}
 
 	client := slack.NewClient(ctx.Config.Token)
+	resolver := slack.NewResolver(client)
 
 	var channelID, threadTS string
 	var err error
@@ -45,11 +46,8 @@ func (c *ThreadReadCmd) Run(ctx *Context) error {
 	}
 
 	for _, msg := range replies.Messages {
-		user := msg.User
-		if user == "" {
-			user = "bot"
-		}
-		fmt.Printf("[%s] %s: %s\n", msg.TS, user, msg.Text)
+		user := resolver.ResolveUser(msg.User)
+		fmt.Printf("[%s] %s: %s\n", msg.TS, user, resolver.FormatText(msg.Text))
 	}
 
 	return nil

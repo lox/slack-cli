@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/enescakir/emoji"
 	"github.com/lox/slack-cli/internal/output"
 	"github.com/lox/slack-cli/internal/slack"
 )
@@ -17,8 +16,7 @@ type ViewCmd struct {
 	Limit    int    `help:"Maximum messages to show for channels/threads" default:"20"`
 	Raw      bool   `help:"Don't resolve user/channel mentions" short:"r"`
 
-	userCache    map[string]string
-	channelCache map[string]string
+	resolver *slack.Resolver
 }
 
 type slackURLInfo struct {
@@ -84,16 +82,13 @@ func (c *ViewCmd) Run(ctx *Context) error {
 		return err
 	}
 
-	// Initialize caches
-	c.userCache = make(map[string]string)
-	c.channelCache = make(map[string]string)
-
 	info, err := parseSlackURL(c.URL)
 	if err != nil {
 		return err
 	}
 
 	client := slack.NewClient(ctx.Config.Token)
+	c.resolver = slack.NewResolver(client)
 
 	// Get channel info for context
 	channel, err := client.GetConversationInfo(info.Channel)
@@ -138,9 +133,9 @@ func (c *ViewCmd) buildThreadMarkdown(sb *strings.Builder, client *slack.Client,
 	}
 
 	for i, msg := range replies.Messages {
-		username := c.resolveUser(client, msg.User)
+		username := c.resolver.ResolveUser(msg.User)
 		timestamp := c.formatTimestamp(msg.TS)
-		text := c.formatText(client, msg.Text)
+		text := c.formatText(msg.Text)
 
 		if i == 0 {
 			sb.WriteString(fmt.Sprintf("**%s** _%s_\n\n", username, timestamp))
@@ -170,9 +165,9 @@ func (c *ViewCmd) buildChannelMarkdown(sb *strings.Builder, client *slack.Client
 	// Reverse to show oldest first
 	for i := len(history.Messages) - 1; i >= 0; i-- {
 		msg := history.Messages[i]
-		username := c.resolveUser(client, msg.User)
+		username := c.resolver.ResolveUser(msg.User)
 		timestamp := c.formatTimestamp(msg.TS)
-		text := c.formatText(client, msg.Text)
+		text := c.formatText(msg.Text)
 
 		sb.WriteString(fmt.Sprintf("**%s** _%s_\n\n", username, timestamp))
 		sb.WriteString(fmt.Sprintf("%s\n\n", text))
@@ -184,131 +179,11 @@ func (c *ViewCmd) buildChannelMarkdown(sb *strings.Builder, client *slack.Client
 	}
 }
 
-func (c *ViewCmd) formatText(client *slack.Client, text string) string {
+func (c *ViewCmd) formatText(text string) string {
 	if c.Raw {
 		return text
 	}
-
-	// Resolve user mentions: <@U123ABC> -> @username
-	result := text
-	for {
-		start := strings.Index(result, "<@")
-		if start == -1 {
-			break
-		}
-		end := strings.Index(result[start:], ">")
-		if end == -1 {
-			break
-		}
-		end += start
-
-		mention := result[start : end+1]
-		userID := result[start+2 : end]
-
-		// Handle <@U123|name> format
-		if pipeIdx := strings.Index(userID, "|"); pipeIdx != -1 {
-			userID = userID[:pipeIdx]
-		}
-
-		displayName := c.resolveUser(client, userID)
-		result = strings.Replace(result, mention, "@"+displayName, 1)
-	}
-
-	// Resolve channel mentions: <#C123ABC|channel-name> -> #channel-name
-	for {
-		start := strings.Index(result, "<#")
-		if start == -1 {
-			break
-		}
-		end := strings.Index(result[start:], ">")
-		if end == -1 {
-			break
-		}
-		end += start
-
-		mention := result[start : end+1]
-		channelPart := result[start+2 : end]
-
-		var channelName string
-		if pipeIdx := strings.Index(channelPart, "|"); pipeIdx != -1 {
-			channelName = channelPart[pipeIdx+1:]
-		} else {
-			channelName = c.resolveChannel(client, channelPart)
-		}
-
-		result = strings.Replace(result, mention, "#"+channelName, 1)
-	}
-
-	// Resolve URL links: <http://example.com|label> -> label (http://example.com)
-	for {
-		start := strings.Index(result, "<http")
-		if start == -1 {
-			break
-		}
-		end := strings.Index(result[start:], ">")
-		if end == -1 {
-			break
-		}
-		end += start
-
-		link := result[start : end+1]
-		linkContent := result[start+1 : end]
-
-		if pipeIdx := strings.Index(linkContent, "|"); pipeIdx != -1 {
-			url := linkContent[:pipeIdx]
-			label := linkContent[pipeIdx+1:]
-			result = strings.Replace(result, link, label+" ("+url+")", 1)
-		} else {
-			result = strings.Replace(result, link, linkContent, 1)
-		}
-	}
-
-	// Convert emoji shortcodes: :smile: -> 😊
-	result = emoji.Parse(result)
-
-	return result
-}
-
-func (c *ViewCmd) resolveChannel(client *slack.Client, channelID string) string {
-	if name, ok := c.channelCache[channelID]; ok {
-		return name
-	}
-
-	channel, err := client.GetConversationInfo(channelID)
-	if err != nil {
-		c.channelCache[channelID] = channelID
-		return channelID
-	}
-
-	c.channelCache[channelID] = channel.Name
-	return channel.Name
-}
-
-func (c *ViewCmd) resolveUser(client *slack.Client, userID string) string {
-	if userID == "" {
-		return "bot"
-	}
-
-	if name, ok := c.userCache[userID]; ok {
-		return name
-	}
-
-	user, err := client.GetUserInfo(userID)
-	if err != nil {
-		c.userCache[userID] = userID
-		return userID
-	}
-
-	name := user.Profile.DisplayName
-	if name == "" {
-		name = user.RealName
-	}
-	if name == "" {
-		name = user.Name
-	}
-
-	c.userCache[userID] = name
-	return name
+	return c.resolver.FormatText(text)
 }
 
 func (c *ViewCmd) formatTimestamp(ts string) string {
