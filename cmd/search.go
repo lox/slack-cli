@@ -17,6 +17,7 @@ func (c *SearchCmd) Run(ctx *Context) error {
 	}
 
 	client := slack.NewClient(ctx.Config.Token)
+	resolver := slack.NewResolver(client)
 	resp, err := client.SearchMessages(c.Query, c.Limit)
 	if err != nil {
 		return fmt.Errorf("search failed: %w", err)
@@ -35,7 +36,7 @@ func (c *SearchCmd) Run(ctx *Context) error {
 			channel = match.Channel.ID
 		}
 		fmt.Printf("#%s [%s]\n", channel, match.TS)
-		fmt.Printf("  %s: %s\n", match.Username, match.Text)
+		fmt.Printf("  %s: %s\n", match.Username, resolver.FormatText(match.Text))
 		if match.Permalink != "" {
 			fmt.Printf("  %s\n", match.Permalink)
 		}

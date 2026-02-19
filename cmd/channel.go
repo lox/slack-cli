@@ -50,6 +50,7 @@ func (c *ChannelReadCmd) Run(ctx *Context) error {
 	}
 
 	client := slack.NewClient(ctx.Config.Token)
+	resolver := slack.NewResolver(client)
 
 	// Resolve channel name to ID if needed
 	channelID := c.Channel
@@ -78,11 +79,8 @@ func (c *ChannelReadCmd) Run(ctx *Context) error {
 	// Print messages in reverse order (oldest first)
 	for i := len(history.Messages) - 1; i >= 0; i-- {
 		msg := history.Messages[i]
-		user := msg.User
-		if user == "" {
-			user = "bot"
-		}
-		fmt.Printf("[%s] %s: %s\n", msg.TS, user, msg.Text)
+		user := resolver.ResolveUser(msg.User)
+		fmt.Printf("[%s] %s: %s\n", msg.TS, user, resolver.FormatText(msg.Text))
 	}
 
 	return nil
