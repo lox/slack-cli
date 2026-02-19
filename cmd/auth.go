@@ -37,7 +37,7 @@ func getOAuthCredentials(cfg *config.Config) (clientID, clientSecret string, err
 		return cfg.ClientID, cfg.ClientSecret, nil
 	}
 
-	return "", "", fmt.Errorf("Slack app not configured. Run 'slack-cli auth config' to set up")
+	return "", "", fmt.Errorf("slack app not configured, run 'slack-cli auth config' to set up")
 }
 
 func generateOAuthState() (string, error) {
@@ -160,7 +160,7 @@ func (c *AuthLoginCmd) Run(ctx *Context) error {
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, `<!DOCTYPE html>
+		_, _ = fmt.Fprint(w, `<!DOCTYPE html>
 <html>
 <head>
 	<meta charset="utf-8">
