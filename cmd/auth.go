@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -24,20 +25,36 @@ const (
 	oauthRedirectURL  = "http://localhost:" + oauthRedirectPort + "/callback"
 )
 
-func getOAuthCredentials(cfg *config.Config) (clientID, clientSecret string, err error) {
-	// Check env vars first (override config)
+func getOAuthCredentials(cfg *config.Config, workspaceRef, flagClientID, flagClientSecret string, useCurrentWorkspace bool) (clientID, clientSecret, resolvedWorkspace string, found bool, err error) {
+	flagClientID = strings.TrimSpace(flagClientID)
+	flagClientSecret = strings.TrimSpace(flagClientSecret)
+	workspaceRef = strings.TrimSpace(workspaceRef)
+
+	if flagClientID != "" || flagClientSecret != "" {
+		if flagClientID == "" || flagClientSecret == "" {
+			return "", "", "", false, fmt.Errorf("both --client-id and --client-secret must be provided")
+		}
+		return flagClientID, flagClientSecret, workspaceRef, true, nil
+	}
+
+	if workspaceRef == "" && useCurrentWorkspace {
+		workspaceRef = cfg.CurrentWorkspace
+	}
+
+	if workspaceRef != "" || useCurrentWorkspace {
+		if clientID, clientSecret, resolvedWorkspace, err := cfg.OAuthCredentialsForWorkspace(workspaceRef); err == nil {
+			return clientID, clientSecret, resolvedWorkspace, true, nil
+		}
+	}
+
+	// Check env vars as a compatibility fallback.
 	clientID = os.Getenv("SLACK_CLIENT_ID")
 	clientSecret = os.Getenv("SLACK_CLIENT_SECRET")
 	if clientID != "" && clientSecret != "" {
-		return clientID, clientSecret, nil
+		return clientID, clientSecret, workspaceRef, true, nil
 	}
 
-	// Fall back to config file
-	if cfg.ClientID != "" && cfg.ClientSecret != "" {
-		return cfg.ClientID, cfg.ClientSecret, nil
-	}
-
-	return "", "", fmt.Errorf("slack app not configured, run 'slack-cli auth config' to set up")
+	return "", "", workspaceRef, false, nil
 }
 
 func generateOAuthState() (string, error) {
@@ -46,6 +63,32 @@ func generateOAuthState() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+func printSlackAppSetupGuide() {
+	fmt.Println()
+	fmt.Println("Slack App Configuration")
+	fmt.Println("-----------------------")
+	fmt.Println("This CLI requires a Slack app for OAuth authentication.")
+	fmt.Println()
+	fmt.Println("To create an app:")
+	fmt.Println("  1. Go to https://api.slack.com/apps")
+	fmt.Println("  2. Click 'Create New App' > 'From a manifest'")
+	fmt.Println("  3. Select your workspace")
+	fmt.Println("  4. Paste the manifest from:")
+	fmt.Println("     https://github.com/lox/slack-cli/blob/main/slack-app-manifest.yaml")
+	fmt.Println("  5. Click 'Create'")
+	fmt.Println("  6. Go to 'Basic Information' to find your credentials")
+	fmt.Println()
+}
+
+func promptSetDefaultWorkspace(reader *bufio.Reader, workspaceHost string) (bool, error) {
+	fmt.Printf("Set %s as the default workspace? [y/N]: ", workspaceHost)
+	choice, err := reader.ReadString('\n')
+	if err != nil {
+		return false, err
+	}
+	return strings.EqualFold(strings.TrimSpace(choice), "y") || strings.EqualFold(strings.TrimSpace(choice), "yes"), nil
 }
 
 // Scopes needed for the CLI
@@ -64,67 +107,93 @@ var oauthScopes = []string{
 }
 
 type AuthCmd struct {
-	Config AuthConfigCmd `cmd:"" help:"Configure Slack app credentials"`
 	Login  AuthLoginCmd  `cmd:"" help:"Authenticate with Slack via OAuth"`
 	Logout AuthLogoutCmd `cmd:"" help:"Remove stored credentials"`
 	Status AuthStatusCmd `cmd:"" help:"Show authentication status"`
 }
 
-type AuthConfigCmd struct{}
-
-func (c *AuthConfigCmd) Run(ctx *Context) error {
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Println("Slack App Configuration")
-	fmt.Println("=======================")
-	fmt.Println()
-	fmt.Println("This CLI requires a Slack app for OAuth authentication.")
-	fmt.Println()
-	fmt.Println("To create an app:")
-	fmt.Println("1. Go to https://api.slack.com/apps")
-	fmt.Println("2. Click 'Create New App' > 'From a manifest'")
-	fmt.Println("3. Select your workspace")
-	fmt.Println("4. Paste the manifest from: https://github.com/lox/slack-cli/blob/main/slack-app-manifest.yaml")
-	fmt.Println("5. Click 'Create'")
-	fmt.Println("6. Go to 'Basic Information' to find your credentials")
-	fmt.Println()
-
-	fmt.Print("Client ID: ")
-	clientID, err := reader.ReadString('\n')
-	if err != nil {
-		return fmt.Errorf("failed to read input: %w", err)
-	}
-	clientID = strings.TrimSpace(clientID)
-
-	fmt.Print("Client Secret: ")
-	clientSecret, err := reader.ReadString('\n')
-	if err != nil {
-		return fmt.Errorf("failed to read input: %w", err)
-	}
-	clientSecret = strings.TrimSpace(clientSecret)
-
-	if clientID == "" || clientSecret == "" {
-		return fmt.Errorf("client ID and secret are required")
-	}
-
-	ctx.Config.ClientID = clientID
-	ctx.Config.ClientSecret = clientSecret
-	if err := ctx.Config.Save(); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
-	}
-
-	fmt.Println()
-	fmt.Println("Configuration saved. Run 'slack-cli auth login' to authenticate.")
-	return nil
+func resetAllAuth(cfg *config.Config) {
+	cfg.Workspaces = map[string]config.WorkspaceAuth{}
+	cfg.CurrentWorkspace = ""
+	cfg.Token = ""
+	cfg.ClientID = ""
+	cfg.ClientSecret = ""
 }
 
-type AuthLoginCmd struct{}
+type AuthLoginCmd struct {
+	ClientID     string `help:"Slack app client ID"`
+	ClientSecret string `help:"Slack app client secret"`
+	Replace      bool   `help:"Replace existing login for the target workspace"`
+	AddNew       bool   `help:"Add another workspace instead of replacing current login"`
+}
 
 func (c *AuthLoginCmd) Run(ctx *Context) error {
-	clientID, clientSecret, err := getOAuthCredentials(ctx.Config)
+	if c.Replace && c.AddNew {
+		return fmt.Errorf("--replace and --add-new cannot be used together")
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	workspaceRef := strings.TrimSpace(ctx.Workspace)
+	replace := c.Replace
+	useCurrentWorkspaceCredentials := true
+
+	if workspaceRef == "" && !replace && !c.AddNew {
+		if current := ctx.Config.CurrentWorkspace; current != "" {
+			if auth, ok := ctx.Config.Workspaces[current]; ok && auth.Token != "" {
+				display := workspaceURLForDisplay(current, auth, "")
+				fmt.Printf("Existing login found for %s. Replace it instead of adding a new workspace? [y/N]: ", display)
+				choice, err := reader.ReadString('\n')
+				if err != nil {
+					return fmt.Errorf("failed to read choice: %w", err)
+				}
+				fmt.Println()
+				replace = strings.EqualFold(strings.TrimSpace(choice), "y") || strings.EqualFold(strings.TrimSpace(choice), "yes")
+				if replace {
+					workspaceRef = current
+				} else {
+					useCurrentWorkspaceCredentials = false
+				}
+			}
+		}
+	}
+
+	if c.AddNew && workspaceRef == "" {
+		useCurrentWorkspaceCredentials = false
+	}
+
+	if replace && workspaceRef == "" {
+		workspaceRef = strings.TrimSpace(ctx.Config.CurrentWorkspace)
+		if workspaceRef == "" {
+			return fmt.Errorf("no current workspace to replace; pass --workspace or omit --replace")
+		}
+	}
+
+	clientID, clientSecret, resolvedWorkspace, found, err := getOAuthCredentials(ctx.Config, workspaceRef, c.ClientID, c.ClientSecret, useCurrentWorkspaceCredentials)
 	if err != nil {
 		return err
 	}
+	if !found {
+		printSlackAppSetupGuide()
+
+		fmt.Print("Client ID: ")
+		clientIDInput, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read client ID: %w", err)
+		}
+		clientID = strings.TrimSpace(clientIDInput)
+
+		fmt.Print("Client Secret: ")
+		clientSecretInput, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read client secret: %w", err)
+		}
+		clientSecret = strings.TrimSpace(clientSecretInput)
+
+		if clientID == "" || clientSecret == "" {
+			return fmt.Errorf("client ID and client secret are required")
+		}
+	}
+	_ = resolvedWorkspace
 
 	// Generate CSRF state parameter
 	state, err := generateOAuthState()
@@ -236,7 +305,7 @@ func (c *AuthLoginCmd) Run(ctx *Context) error {
 	select {
 	case code := <-codeChan:
 		_ = server.Shutdown(context.Background())
-		return c.exchangeCodeForToken(ctx, code, clientID, clientSecret)
+		return c.exchangeCodeForToken(ctx, code, clientID, clientSecret, replace, c.AddNew, reader)
 	case err := <-errChan:
 		_ = server.Shutdown(context.Background())
 		return err
@@ -246,7 +315,7 @@ func (c *AuthLoginCmd) Run(ctx *Context) error {
 	}
 }
 
-func (c *AuthLoginCmd) exchangeCodeForToken(ctx *Context, code, clientID, clientSecret string) error {
+func (c *AuthLoginCmd) exchangeCodeForToken(ctx *Context, code, clientID, clientSecret string, replace bool, addNew bool, reader *bufio.Reader) error {
 	token, err := slack.ExchangeOAuthCode(clientID, clientSecret, code, oauthRedirectURL)
 	if err != nil {
 		return fmt.Errorf("failed to exchange code for token: %w", err)
@@ -259,12 +328,66 @@ func (c *AuthLoginCmd) exchangeCodeForToken(ctx *Context, code, clientID, client
 		return fmt.Errorf("token validation failed: %w", err)
 	}
 
-	ctx.Config.Token = token
+	workspaceHost, _, err := slack.ExtractWorkspaceRef(user.URL)
+	if err != nil || workspaceHost == "" {
+		workspaceHost = "default"
+	}
+
+	previousCurrent := ctx.Config.CurrentWorkspace
+	shouldSetDefault := replace || previousCurrent == "" || previousCurrent == workspaceHost
+	if !replace && previousCurrent != "" && previousCurrent != workspaceHost {
+		setDefault, promptErr := promptSetDefaultWorkspace(reader, workspaceHost)
+		if promptErr != nil {
+			return fmt.Errorf("failed to read default workspace choice: %w", promptErr)
+		}
+		shouldSetDefault = setDefault
+	}
+
+	if existing, ok := ctx.Config.Workspaces[workspaceHost]; ok && existing.Token != "" {
+		if addNew {
+			return fmt.Errorf("workspace %s is already configured; rerun without --add-new or pass --replace", workspaceHost)
+		}
+		if !replace {
+			fmt.Printf("Workspace %s is already configured. Replace existing login? [y/N]: ", workspaceHost)
+			choice, readErr := reader.ReadString('\n')
+			if readErr != nil {
+				return fmt.Errorf("failed to read replace confirmation: %w", readErr)
+			}
+			normalized := strings.TrimSpace(choice)
+			if !strings.EqualFold(normalized, "y") && !strings.EqualFold(normalized, "yes") {
+				return fmt.Errorf("login cancelled")
+			}
+		}
+	}
+
+	ctx.Config.SetWorkspaceAuth(workspaceHost, config.WorkspaceAuth{
+		Token:        token,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Team:         user.Team,
+		TeamID:       user.TeamID,
+		URL:          user.URL,
+	})
 	if err := ctx.Config.Save(); err != nil {
 		return fmt.Errorf("failed to save token: %w", err)
 	}
 
-	fmt.Printf("Logged in as %s in workspace %s\n", user.User, user.Team)
+	if !shouldSetDefault {
+		ctx.Config.CurrentWorkspace = previousCurrent
+		if previousCurrent != "" {
+			ctx.Config.Token = ctx.Config.Workspaces[previousCurrent].Token
+		} else {
+			ctx.Config.Token = ""
+		}
+		if err := ctx.Config.Save(); err != nil {
+			return fmt.Errorf("failed to save default workspace selection: %w", err)
+		}
+	}
+
+	fmt.Printf("Logged in as %s in workspace %s (%s)\n", user.User, user.Team, workspaceHost)
+	if !shouldSetDefault && previousCurrent != "" {
+		fmt.Printf("Default workspace remains %s\n", previousCurrent)
+	}
 	return nil
 }
 
@@ -286,32 +409,137 @@ func openBrowser(url string) {
 	}
 }
 
-type AuthLogoutCmd struct{}
+type AuthLogoutCmd struct {
+	All bool `help:"Log out of all configured workspaces and clear saved OAuth app credentials"`
+}
+
+func resolveWorkspaceForLogout(cfg *config.Config, requestedWorkspace string) (string, error) {
+	workspace := strings.TrimSpace(requestedWorkspace)
+	if workspace == "" {
+		return cfg.CurrentWorkspace, nil
+	}
+
+	_, resolvedWorkspace, err := cfg.TokenForWorkspace(workspace)
+	if err != nil {
+		return "", err
+	}
+	return resolvedWorkspace, nil
+}
 
 func (c *AuthLogoutCmd) Run(ctx *Context) error {
+	if c.All {
+		if strings.TrimSpace(ctx.Workspace) != "" {
+			return fmt.Errorf("--all cannot be used with --workspace")
+		}
+
+		resetAllAuth(ctx.Config)
+
+		if err := ctx.Config.Save(); err != nil {
+			return fmt.Errorf("failed to clear auth configuration: %w", err)
+		}
+
+		fmt.Println("Logged out from all workspaces")
+		return nil
+	}
+
+	workspace, err := resolveWorkspaceForLogout(ctx.Config, ctx.Workspace)
+	if err != nil {
+		return fmt.Errorf("failed to resolve workspace for logout: %w", err)
+	}
+
+	if workspace != "" {
+		delete(ctx.Config.Workspaces, strings.ToLower(workspace))
+		if ctx.Config.CurrentWorkspace == strings.ToLower(workspace) {
+			ctx.Config.CurrentWorkspace = ""
+			if len(ctx.Config.Workspaces) > 0 {
+				keys := make([]string, 0, len(ctx.Config.Workspaces))
+				for k := range ctx.Config.Workspaces {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				ctx.Config.CurrentWorkspace = keys[0]
+			}
+		}
+	}
+
 	ctx.Config.Token = ""
+	if ctx.Config.CurrentWorkspace != "" {
+		ctx.Config.Token = ctx.Config.Workspaces[ctx.Config.CurrentWorkspace].Token
+	}
+
 	if err := ctx.Config.Save(); err != nil {
 		return fmt.Errorf("failed to clear token: %w", err)
 	}
-	fmt.Println("Logged out successfully")
+
+	if workspace == "" {
+		fmt.Println("Logged out successfully")
+		return nil
+	}
+	fmt.Printf("Logged out workspace %s\n", workspace)
 	return nil
 }
 
 type AuthStatusCmd struct{}
 
+func workspaceURLForDisplay(workspaceKey string, auth config.WorkspaceAuth, fallbackURL string) string {
+	if strings.TrimSpace(auth.URL) != "" {
+		return auth.URL
+	}
+
+	if strings.TrimSpace(fallbackURL) != "" {
+		return fallbackURL
+	}
+
+	if strings.HasSuffix(strings.ToLower(workspaceKey), ".slack.com") {
+		return "https://" + workspaceKey + "/"
+	}
+
+	return workspaceKey
+}
+
 func (c *AuthStatusCmd) Run(ctx *Context) error {
-	if ctx.Config.Token == "" {
-		fmt.Println("Not logged in. Run 'slack-cli auth login' to authenticate.")
+	requestedWorkspace := strings.TrimSpace(ctx.Workspace)
+	token, resolvedWorkspace, err := ctx.Config.TokenForWorkspace(requestedWorkspace)
+	if err != nil {
+		fmt.Println("Not logged in. Run 'slack auth login' to authenticate.")
 		return nil
 	}
 
-	client := slack.NewClient(ctx.Config.Token)
+	client := slack.NewClient(token)
 	user, err := client.AuthTest()
 	if err != nil {
 		fmt.Printf("Token invalid: %v\n", err)
 		return nil
 	}
 
-	fmt.Printf("Logged in as %s in workspace %s\n", user.User, user.Team)
+	resolvedDisplay := resolvedWorkspace
+	if auth, ok := ctx.Config.Workspaces[resolvedWorkspace]; ok {
+		resolvedDisplay = workspaceURLForDisplay(resolvedWorkspace, auth, user.URL)
+	}
+
+	fmt.Printf("Logged in as %s in workspace %s (%s)\n", user.User, user.Team, resolvedDisplay)
+
+	if len(ctx.Config.Workspaces) > 1 {
+		keys := make([]string, 0, len(ctx.Config.Workspaces))
+		for k := range ctx.Config.Workspaces {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		fmt.Println("Configured workspaces:")
+		for _, key := range keys {
+			auth := ctx.Config.Workspaces[key]
+			fallbackURL := ""
+			if key == resolvedWorkspace {
+				fallbackURL = user.URL
+			}
+			display := workspaceURLForDisplay(key, auth, fallbackURL)
+			current := ""
+			if key == ctx.Config.CurrentWorkspace {
+				current = " (default)"
+			}
+			fmt.Printf("- %s%s\n", display, current)
+		}
+	}
+
 	return nil
 }

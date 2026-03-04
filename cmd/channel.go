@@ -18,11 +18,10 @@ type ChannelListCmd struct {
 }
 
 func (c *ChannelListCmd) Run(ctx *Context) error {
-	if err := ctx.RequireAuth(); err != nil {
+	client, err := ctx.NewClient("")
+	if err != nil {
 		return err
 	}
-
-	client := slack.NewClient(ctx.Config.Token)
 	resp, err := client.ListConversations("public_channel,private_channel", c.Limit)
 	if err != nil {
 		return fmt.Errorf("failed to list channels: %w", err)
@@ -45,11 +44,10 @@ type ChannelReadCmd struct {
 }
 
 func (c *ChannelReadCmd) Run(ctx *Context) error {
-	if err := ctx.RequireAuth(); err != nil {
+	client, err := ctx.NewClient("")
+	if err != nil {
 		return err
 	}
-
-	client := slack.NewClient(ctx.Config.Token)
 	resolver := slack.NewResolver(client)
 
 	// Resolve channel name to ID if needed
@@ -91,11 +89,10 @@ type ChannelInfoCmd struct {
 }
 
 func (c *ChannelInfoCmd) Run(ctx *Context) error {
-	if err := ctx.RequireAuth(); err != nil {
+	client, err := ctx.NewClient("")
+	if err != nil {
 		return err
 	}
-
-	client := slack.NewClient(ctx.Config.Token)
 
 	channelID := strings.TrimPrefix(c.Channel, "#")
 

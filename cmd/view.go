@@ -78,21 +78,21 @@ func parseSlackURL(rawURL string) (*slackURLInfo, error) {
 }
 
 func (c *ViewCmd) Run(ctx *Context) error {
-	if err := ctx.RequireAuth(); err != nil {
-		return err
-	}
-
 	info, err := parseSlackURL(c.URL)
 	if err != nil {
 		return err
 	}
 
-	client := slack.NewClient(ctx.Config.Token)
+	client, err := ctx.NewClient(c.URL)
+	if err != nil {
+		return err
+	}
 	c.resolver = slack.NewResolver(client)
 
 	// Get channel info for context
 	channel, err := client.GetConversationInfo(info.Channel)
 	if err != nil {
+		err = ctx.augmentChannelNotFoundError(c.URL, err)
 		return fmt.Errorf("failed to get channel info: %w", err)
 	}
 

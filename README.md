@@ -40,33 +40,40 @@ Each workspace requires a Slack app for OAuth:
 4. Click **Create**
 5. From **Basic Information**, copy the **Client ID** and **Client Secret**
 
-### 2. Configure the CLI
-
-```bash
-slack-cli auth config
-```
-
-This will prompt you to paste your Client ID and Secret, which are stored in `~/.config/slack-cli/config.json`.
-
-### 3. Authenticate
+### 2. Authenticate
 
 ```bash
 slack-cli auth login
 ```
 
-This opens your browser for OAuth. Approve the permissions and you're logged in.
+`auth login` prompts for Client ID and Client Secret when needed, then opens your browser for OAuth.
+
+If a workspace is already logged in, `auth login` prompts whether to replace it or add another workspace.
+
+Use `--workspace` when you want to target a specific workspace:
+
+```bash
+slack-cli --workspace buildkite.slack.com auth login
+slack-cli --workspace buildkite auth login
+```
+
+`--workspace` accepts a full host (`buildkite.slack.com`), short host (`buildkite`), or team ID (`T123...`).
+
+OAuth app credentials and tokens are both stored per workspace in `~/.config/slack-cli/config.json`.
+
+Repeat `slack-cli auth login` for each workspace you want to access. Tokens are stored per workspace in the same XDG config file (`~/.config/slack-cli/config.json`).
 
 ### Environment Variables (optional)
 
-For CI or automation, you can use environment variables instead of `auth config`:
+For CI or automation, you can set credentials via flags or environment variables:
 
 ```bash
 export SLACK_CLIENT_ID="your-client-id"
 export SLACK_CLIENT_SECRET="your-client-secret"
-slack-cli auth login
+slack-cli --workspace buildkite.slack.com auth login
 ```
 
-Environment variables take precedence over the config file.
+`auth login` also supports `--client-id` and `--client-secret`.
 
 ## Usage
 
@@ -110,11 +117,25 @@ slack-cli user info alice@acme.com      # Lookup by email
 ### Authentication
 
 ```bash
-slack-cli auth config   # Configure Slack app credentials
-slack-cli auth login    # Authenticate with Slack
+slack-cli --workspace <workspace> auth login    # Authenticate with Slack for that workspace
+slack-cli auth login --replace                  # Replace current workspace login
+slack-cli auth login --add-new                  # Add another workspace login
+slack-cli auth login --client-id <id> --client-secret <secret>  # Non-interactive creds override
 slack-cli auth status   # Check auth status
-slack-cli auth logout   # Clear stored token
+slack-cli auth logout --all                     # Clear all stored auth state
+slack-cli --workspace <workspace> auth logout   # Clear one workspace token
 ```
+
+### Multiple Workspaces
+
+```bash
+slack-cli auth login
+slack-cli auth login                      # Run again for another workspace
+slack-cli --workspace buildkite.slack.com search "deploy"
+slack-cli --workspace T12345678 channel list
+```
+
+For URL-based commands (`view`, `thread read <url>`), the CLI automatically selects the token from the URL workspace when possible.
 
 ## Agent Skill
 
