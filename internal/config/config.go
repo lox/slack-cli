@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -95,38 +94,47 @@ func (c *Config) cleanupLegacyDefaultWorkspaceAlias() {
 		return
 	}
 
-	delete(c.Workspaces, "default")
-
-	if c.CurrentWorkspace == "default" {
-		c.CurrentWorkspace = ""
-		if legacy.Token != "" {
-			for key, auth := range c.Workspaces {
-				if auth.Token == legacy.Token && auth.Token != "" {
-					c.CurrentWorkspace = key
-					break
-				}
-			}
+	if legacy.Token == "" {
+		delete(c.Workspaces, "default")
+		if c.CurrentWorkspace == "default" {
+			c.CurrentWorkspace = ""
 		}
-		if c.CurrentWorkspace == "" {
-			keys := make([]string, 0, len(c.Workspaces))
-			for key := range c.Workspaces {
-				keys = append(keys, key)
-			}
-			sort.Strings(keys)
-			if len(keys) > 0 {
-				c.CurrentWorkspace = keys[0]
-			}
+		if c.CurrentWorkspace != "" {
+			c.Token = c.Workspaces[c.CurrentWorkspace].Token
 		}
+		return
 	}
 
-	if c.CurrentWorkspace != "" {
-		if auth, ok := c.Workspaces[c.CurrentWorkspace]; ok {
+	for key, auth := range c.Workspaces {
+		if key == "default" {
+			continue
+		}
+		if auth.Token == legacy.Token && auth.Token != "" {
+			delete(c.Workspaces, "default")
+			if c.CurrentWorkspace == "default" {
+				c.CurrentWorkspace = key
+			}
 			c.Token = auth.Token
 			return
 		}
 	}
+}
 
-	c.Token = ""
+func (c *Config) ResolveWorkspace(workspace string) (string, error) {
+	workspace = normalizeWorkspaceKey(workspace)
+	if workspace == "" {
+		if c.CurrentWorkspace == "" {
+			return "", fmt.Errorf("no current workspace configured")
+		}
+		return c.CurrentWorkspace, nil
+	}
+
+	resolved := c.workspaceKey(workspace)
+	if resolved == "" {
+		return "", fmt.Errorf("no workspace configured for %q", workspace)
+	}
+
+	return resolved, nil
 }
 
 func (c *Config) SetWorkspaceAuth(workspace string, auth WorkspaceAuth) {

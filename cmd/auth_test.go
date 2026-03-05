@@ -35,6 +35,22 @@ func TestResolveWorkspaceForLogout(t *testing.T) {
 		}
 	})
 
+	t.Run("resolves workspace without requiring a token", func(t *testing.T) {
+		cfgWithoutToken := &config.Config{
+			Workspaces: map[string]config.WorkspaceAuth{
+				"buildkite.slack.com": {TeamID: "TBUILD"},
+			},
+		}
+
+		got, err := resolveWorkspaceForLogout(cfgWithoutToken, "TBUILD")
+		if err != nil {
+			t.Fatalf("resolveWorkspaceForLogout returned error: %v", err)
+		}
+		if got != "buildkite.slack.com" {
+			t.Fatalf("expected buildkite.slack.com, got %q", got)
+		}
+	})
+
 	t.Run("unknown workspace returns error", func(t *testing.T) {
 		_, err := resolveWorkspaceForLogout(cfg, "typo.slack.com")
 		if err == nil {
@@ -296,4 +312,27 @@ func TestRequestedWorkspaceMatchesAuthResult(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWorkspaceKeyFromAuthResult(t *testing.T) {
+	t.Run("prefers parsed workspace host from URL", func(t *testing.T) {
+		got := workspaceKeyFromAuthResult("https://buildkite.slack.com/", "TBUILD", "Buildkite")
+		if got != "buildkite.slack.com" {
+			t.Fatalf("expected buildkite.slack.com, got %q", got)
+		}
+	})
+
+	t.Run("falls back to team ID when URL cannot be parsed", func(t *testing.T) {
+		got := workspaceKeyFromAuthResult("", "TBUILD", "Buildkite")
+		if got != "tbuild" {
+			t.Fatalf("expected lowercase team ID fallback, got %q", got)
+		}
+	})
+
+	t.Run("does not return legacy default key", func(t *testing.T) {
+		got := workspaceKeyFromAuthResult("", "", "")
+		if got != "" {
+			t.Fatalf("expected empty fallback, got %q", got)
+		}
+	})
 }

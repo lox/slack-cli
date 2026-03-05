@@ -155,7 +155,7 @@ func TestCleanupLegacyDefaultWorkspaceAlias(t *testing.T) {
 		}
 	})
 
-	t.Run("removes stale default alias even when token differs", func(t *testing.T) {
+	t.Run("keeps unique default alias when token differs", func(t *testing.T) {
 		cfg := &Config{
 			CurrentWorkspace: "default",
 			Workspaces: map[string]WorkspaceAuth{
@@ -166,11 +166,14 @@ func TestCleanupLegacyDefaultWorkspaceAlias(t *testing.T) {
 
 		cfg.cleanupLegacyDefaultWorkspaceAlias()
 
-		if _, ok := cfg.Workspaces["default"]; ok {
-			t.Fatalf("expected stale default workspace alias to be removed")
+		if _, ok := cfg.Workspaces["default"]; !ok {
+			t.Fatalf("expected unique default workspace alias to be preserved")
 		}
-		if cfg.CurrentWorkspace != "buildkite.slack.com" {
-			t.Fatalf("expected current workspace to switch to buildkite.slack.com, got %q", cfg.CurrentWorkspace)
+		if cfg.CurrentWorkspace != "default" {
+			t.Fatalf("expected current workspace to remain default, got %q", cfg.CurrentWorkspace)
+		}
+		if cfg.Token != "" {
+			t.Fatalf("expected legacy mirrored token to be unchanged, got %q", cfg.Token)
 		}
 	})
 }

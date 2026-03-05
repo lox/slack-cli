@@ -156,6 +156,23 @@ func requestedWorkspaceMatchesAuthResult(requestedWorkspace, resolvedWorkspace, 
 	return false
 }
 
+func workspaceKeyFromAuthResult(userURL, teamID, team string) string {
+	if host, _, err := slack.ExtractWorkspaceRef(userURL); err == nil && host != "" {
+		return strings.ToLower(strings.TrimSpace(host))
+	}
+
+	if strings.TrimSpace(teamID) != "" {
+		return strings.ToLower(strings.TrimSpace(teamID))
+	}
+
+	team = strings.TrimSpace(team)
+	if team == "" {
+		return ""
+	}
+
+	return strings.ToLower(strings.ReplaceAll(team, " ", "-"))
+}
+
 // Scopes needed for the CLI
 var oauthScopes = []string{
 	"channels:history",
@@ -391,9 +408,9 @@ func (c *AuthLoginCmd) exchangeCodeForToken(ctx *Context, code, clientID, client
 		return fmt.Errorf("token validation failed: %w", err)
 	}
 
-	workspaceHost, _, err := slack.ExtractWorkspaceRef(user.URL)
-	if err != nil || workspaceHost == "" {
-		workspaceHost = "default"
+	workspaceHost := workspaceKeyFromAuthResult(user.URL, user.TeamID, user.Team)
+	if workspaceHost == "" {
+		return fmt.Errorf("unable to determine workspace from Slack auth response")
 	}
 
 	if !requestedWorkspaceMatchesAuthResult(requestedWorkspace, resolvedWorkspace, workspaceHost, user.TeamID) {
@@ -499,7 +516,7 @@ func resolveWorkspaceForLogout(cfg *config.Config, requestedWorkspace string) (s
 		return cfg.CurrentWorkspace, nil
 	}
 
-	_, resolvedWorkspace, err := cfg.TokenForWorkspace(workspace)
+	resolvedWorkspace, err := cfg.ResolveWorkspace(workspace)
 	if err != nil {
 		return "", err
 	}
