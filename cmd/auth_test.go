@@ -251,6 +251,7 @@ func TestRequestedWorkspaceMatchesAuthResult(t *testing.T) {
 		{name: "short host matches", requested: "buildkite", authHost: "buildkite.slack.com", authTeamID: "TBUILD", want: true},
 		{name: "team ID matches", requested: "TBUILD", authHost: "buildkite.slack.com", authTeamID: "TBUILD", want: true},
 		{name: "resolved workspace host wins", requested: "TBUILD", resolvedRequested: "buildkite.slack.com", authHost: "buildkite.slack.com", authTeamID: "TBUILD", want: true},
+		{name: "legacy default alias matches any authenticated workspace", requested: "default", authHost: "buildkite.slack.com", authTeamID: "TBUILD", want: true},
 		{name: "mismatch", requested: "buildkite-corp", authHost: "buildkite.slack.com", authTeamID: "TBUILD", want: false},
 	}
 

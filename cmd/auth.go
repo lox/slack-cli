@@ -129,6 +129,9 @@ func requestedWorkspaceMatchesAuthResult(requestedWorkspace, resolvedWorkspace, 
 	if expected == "" {
 		return true
 	}
+	if expected == "default" {
+		return true
+	}
 
 	authenticatedHost = strings.TrimSpace(strings.ToLower(authenticatedHost))
 	authenticatedTeamID = strings.TrimSpace(authenticatedTeamID)
