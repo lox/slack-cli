@@ -25,14 +25,14 @@ func (ctx *Context) augmentChannelNotFoundError(rawURL string, err error) error 
 
 	if host != "" {
 		if _, _, lookupErr := ctx.Config.TokenForWorkspace(host); lookupErr != nil {
-			return fmt.Errorf("%w. Workspace %s is not configured. Run 'slack auth login' for that workspace or pass --workspace", err, host)
+			return fmt.Errorf("%w. Workspace %s is not configured. Run 'slack-cli auth login' for that workspace or pass --workspace", err, host)
 		}
 		return err
 	}
 
 	if teamID != "" {
 		if _, _, lookupErr := ctx.Config.TokenForWorkspace(teamID); lookupErr != nil {
-			return fmt.Errorf("%w. Workspace %s is not configured. Run 'slack auth login' for that workspace or pass --workspace", err, teamID)
+			return fmt.Errorf("%w. Workspace %s is not configured. Run 'slack-cli auth login' for that workspace or pass --workspace", err, teamID)
 		}
 	}
 

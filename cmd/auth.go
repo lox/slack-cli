@@ -509,7 +509,7 @@ func (c *AuthStatusCmd) Run(ctx *Context) error {
 	requestedWorkspace := strings.TrimSpace(ctx.Workspace)
 	token, resolvedWorkspace, err := ctx.Config.TokenForWorkspace(requestedWorkspace)
 	if err != nil {
-		fmt.Println("Not logged in. Run 'slack auth login' to authenticate.")
+		fmt.Println("Not logged in. Run 'slack-cli auth login' to authenticate.")
 		return nil
 	}
 

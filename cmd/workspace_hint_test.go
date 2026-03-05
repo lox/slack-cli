@@ -17,6 +17,9 @@ func TestAugmentChannelNotFoundError(t *testing.T) {
 		if !strings.Contains(err.Error(), "Workspace buildkite.slack.com is not configured") {
 			t.Fatalf("expected workspace configuration hint, got %q", err.Error())
 		}
+		if !strings.Contains(err.Error(), "Run 'slack-cli auth login' for that workspace") {
+			t.Fatalf("expected slack-cli auth hint, got %q", err.Error())
+		}
 	})
 
 	t.Run("does not add hint when workspace is mapped", func(t *testing.T) {

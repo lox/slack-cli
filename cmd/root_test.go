@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lox/slack-cli/internal/config"
@@ -39,5 +40,8 @@ func TestResolveTokenExplicitWorkspaceStillErrors(t *testing.T) {
 	_, err := ctx.resolveToken("")
 	if err == nil {
 		t.Fatalf("expected error for unknown explicit workspace")
+	}
+	if !strings.Contains(err.Error(), "Run 'slack-cli auth login' for that workspace") {
+		t.Fatalf("expected slack-cli auth hint, got %q", err.Error())
 	}
 }

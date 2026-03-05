@@ -46,7 +46,7 @@ func (ctx *Context) resolveToken(urlHint string) (string, error) {
 		}
 
 		if workspaceHint != "" {
-			return "", fmt.Errorf("%w. Run 'slack auth login' for that workspace or pass --workspace", err)
+			return "", fmt.Errorf("%w. Run 'slack-cli auth login' for that workspace or pass --workspace", err)
 		}
 		return "", err
 	}

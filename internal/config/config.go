@@ -247,7 +247,7 @@ func (c *Config) TokenForWorkspace(workspace string) (token string, resolvedWork
 		return c.Token, "default", nil
 	}
 
-	return "", "", fmt.Errorf("not logged in. Run 'slack auth login' first")
+	return "", "", fmt.Errorf("not logged in. Run 'slack-cli auth login' first")
 }
 
 func (c *Config) Save() error {
