@@ -16,11 +16,10 @@ type UserListCmd struct {
 }
 
 func (c *UserListCmd) Run(ctx *Context) error {
-	if err := ctx.RequireAuth(); err != nil {
+	client, err := ctx.NewClient("")
+	if err != nil {
 		return err
 	}
-
-	client := slack.NewClient(ctx.Config.Token)
 	resp, err := client.ListUsers(c.Limit)
 	if err != nil {
 		return fmt.Errorf("failed to list users: %w", err)
@@ -45,14 +44,12 @@ type UserInfoCmd struct {
 }
 
 func (c *UserInfoCmd) Run(ctx *Context) error {
-	if err := ctx.RequireAuth(); err != nil {
+	client, err := ctx.NewClient("")
+	if err != nil {
 		return err
 	}
 
-	client := slack.NewClient(ctx.Config.Token)
-
 	var user *slack.User
-	var err error
 
 	// Check if it looks like an email
 	if len(c.User) > 0 && c.User[0] != 'U' && contains(c.User, "@") {

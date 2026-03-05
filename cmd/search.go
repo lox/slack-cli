@@ -12,11 +12,10 @@ type SearchCmd struct {
 }
 
 func (c *SearchCmd) Run(ctx *Context) error {
-	if err := ctx.RequireAuth(); err != nil {
+	client, err := ctx.NewClient("")
+	if err != nil {
 		return err
 	}
-
-	client := slack.NewClient(ctx.Config.Token)
 	resolver := slack.NewResolver(client)
 	resp, err := client.SearchMessages(c.Query, c.Limit)
 	if err != nil {

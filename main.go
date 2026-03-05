@@ -22,7 +22,7 @@ func main() {
 	cfg, err := config.Load()
 	ctx.FatalIfErrorf(err)
 
-	err = ctx.Run(&cmd.Context{Config: cfg})
+	err = ctx.Run(&cmd.Context{Config: cfg, Workspace: c.Workspace})
 	ctx.FatalIfErrorf(err)
 	os.Exit(0)
 }

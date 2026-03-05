@@ -18,13 +18,6 @@ type ThreadReadCmd struct {
 }
 
 func (c *ThreadReadCmd) Run(ctx *Context) error {
-	if err := ctx.RequireAuth(); err != nil {
-		return err
-	}
-
-	client := slack.NewClient(ctx.Config.Token)
-	resolver := slack.NewResolver(client)
-
 	var channelID, threadTS string
 	var err error
 
@@ -40,8 +33,15 @@ func (c *ThreadReadCmd) Run(ctx *Context) error {
 		return fmt.Errorf("provide either a thread URL or --channel and --timestamp")
 	}
 
+	client, err := ctx.NewClient(c.URL)
+	if err != nil {
+		return err
+	}
+	resolver := slack.NewResolver(client)
+
 	replies, err := client.GetConversationReplies(channelID, threadTS, c.Limit)
 	if err != nil {
+		err = ctx.augmentChannelNotFoundError(c.URL, err)
 		return fmt.Errorf("failed to get thread: %w", err)
 	}
 
