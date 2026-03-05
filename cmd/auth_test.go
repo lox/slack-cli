@@ -148,6 +148,27 @@ func TestGetOAuthCredentials(t *testing.T) {
 		}
 	})
 
+	t.Run("env vars override global config credentials", func(t *testing.T) {
+		t.Setenv("SLACK_CLIENT_ID", "env-id")
+		t.Setenv("SLACK_CLIENT_SECRET", "env-secret")
+
+		cfg := &config.Config{ClientID: "global-id", ClientSecret: "global-secret"}
+ 
+		id, secret, workspace, found, err := getOAuthCredentials(cfg, "missing.slack.com", "", "", true)
+		if err != nil {
+			t.Fatalf("getOAuthCredentials returned error: %v", err)
+		}
+		if !found {
+			t.Fatalf("expected credentials to be found")
+		}
+		if id != "env-id" || secret != "env-secret" {
+			t.Fatalf("expected env credentials to override global config, got %q/%q", id, secret)
+		}
+		if workspace != "missing.slack.com" {
+			t.Fatalf("expected workspace ref to be preserved, got %q", workspace)
+		}
+	})
+
 	t.Run("returns not found when workspace is missing config", func(t *testing.T) {
 		cfg := &config.Config{}
 		_, _, _, found, err := getOAuthCredentials(cfg, "missing.slack.com", "", "", true)

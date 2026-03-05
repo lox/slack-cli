@@ -47,15 +47,15 @@ func getOAuthCredentials(cfg *config.Config, workspaceRef, flagClientID, flagCli
 		}
 	}
 
-	if cfg.ClientID != "" && cfg.ClientSecret != "" {
-		return cfg.ClientID, cfg.ClientSecret, workspaceRef, true, nil
-	}
-
-	// Check env vars as a compatibility fallback.
+	// Environment overrides global config for CI and per-shell auth.
 	clientID = os.Getenv("SLACK_CLIENT_ID")
 	clientSecret = os.Getenv("SLACK_CLIENT_SECRET")
 	if clientID != "" && clientSecret != "" {
 		return clientID, clientSecret, workspaceRef, true, nil
+	}
+
+	if cfg.ClientID != "" && cfg.ClientSecret != "" {
+		return cfg.ClientID, cfg.ClientSecret, workspaceRef, true, nil
 	}
 
 	return "", "", workspaceRef, false, nil
