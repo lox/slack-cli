@@ -47,6 +47,10 @@ func getOAuthCredentials(cfg *config.Config, workspaceRef, flagClientID, flagCli
 		}
 	}
 
+	if cfg.ClientID != "" && cfg.ClientSecret != "" {
+		return cfg.ClientID, cfg.ClientSecret, workspaceRef, true, nil
+	}
+
 	// Check env vars as a compatibility fallback.
 	clientID = os.Getenv("SLACK_CLIENT_ID")
 	clientSecret = os.Getenv("SLACK_CLIENT_SECRET")

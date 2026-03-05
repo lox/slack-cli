@@ -130,6 +130,24 @@ func TestGetOAuthCredentials(t *testing.T) {
 		}
 	})
 
+	t.Run("falls back to global config credentials for missing workspace", func(t *testing.T) {
+		cfg := &config.Config{ClientID: "global-id", ClientSecret: "global-secret"}
+
+		id, secret, workspace, found, err := getOAuthCredentials(cfg, "missing.slack.com", "", "", true)
+		if err != nil {
+			t.Fatalf("getOAuthCredentials returned error: %v", err)
+		}
+		if !found {
+			t.Fatalf("expected credentials to be found")
+		}
+		if id != "global-id" || secret != "global-secret" {
+			t.Fatalf("expected global credentials, got %q/%q", id, secret)
+		}
+		if workspace != "missing.slack.com" {
+			t.Fatalf("expected workspace ref to be preserved, got %q", workspace)
+		}
+	})
+
 	t.Run("returns not found when workspace is missing config", func(t *testing.T) {
 		cfg := &config.Config{}
 		_, _, _, found, err := getOAuthCredentials(cfg, "missing.slack.com", "", "", true)
