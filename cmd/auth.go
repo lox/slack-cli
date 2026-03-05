@@ -91,6 +91,10 @@ func promptSetDefaultWorkspace(reader *bufio.Reader, workspaceHost string) (bool
 	return strings.EqualFold(strings.TrimSpace(choice), "y") || strings.EqualFold(strings.TrimSpace(choice), "yes"), nil
 }
 
+func shouldSetWorkspaceAsDefault(previousCurrent, workspaceHost string) bool {
+	return previousCurrent == "" || previousCurrent == workspaceHost
+}
+
 // Scopes needed for the CLI
 var oauthScopes = []string{
 	"channels:history",
@@ -334,7 +338,7 @@ func (c *AuthLoginCmd) exchangeCodeForToken(ctx *Context, code, clientID, client
 	}
 
 	previousCurrent := ctx.Config.CurrentWorkspace
-	shouldSetDefault := replace || previousCurrent == "" || previousCurrent == workspaceHost
+	shouldSetDefault := shouldSetWorkspaceAsDefault(previousCurrent, workspaceHost)
 	if !replace && previousCurrent != "" && previousCurrent != workspaceHost {
 		setDefault, promptErr := promptSetDefaultWorkspace(reader, workspaceHost)
 		if promptErr != nil {

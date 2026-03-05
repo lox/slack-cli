@@ -185,3 +185,25 @@ func TestResetAllAuth(t *testing.T) {
 		t.Fatalf("expected global client credentials to be cleared")
 	}
 }
+
+func TestShouldSetWorkspaceAsDefault(t *testing.T) {
+	tests := []struct {
+		name            string
+		previousCurrent string
+		workspaceHost   string
+		want            bool
+	}{
+		{name: "first login", previousCurrent: "", workspaceHost: "buildkite.slack.com", want: true},
+		{name: "same workspace", previousCurrent: "buildkite.slack.com", workspaceHost: "buildkite.slack.com", want: true},
+		{name: "different workspace", previousCurrent: "buildkite-corp.slack.com", workspaceHost: "buildkite.slack.com", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldSetWorkspaceAsDefault(tt.previousCurrent, tt.workspaceHost)
+			if got != tt.want {
+				t.Fatalf("shouldSetWorkspaceAsDefault(%q, %q) = %v, want %v", tt.previousCurrent, tt.workspaceHost, got, tt.want)
+			}
+		})
+	}
+}
