@@ -99,7 +99,7 @@ func isLegacyDefaultWorkspaceAlias(auth config.WorkspaceAuth) bool {
 	return auth.Team == "" && auth.TeamID == "" && auth.URL == "" && auth.ClientID == "" && auth.ClientSecret == ""
 }
 
-func shouldSetWorkspaceAsDefault(cfg *config.Config, previousCurrent, workspaceHost string) bool {
+func shouldSetWorkspaceAsDefault(cfg *config.Config, previousCurrent, workspaceHost string, replace bool) bool {
 	previousCurrent = strings.TrimSpace(strings.ToLower(previousCurrent))
 	workspaceHost = strings.TrimSpace(strings.ToLower(workspaceHost))
 
@@ -112,12 +112,21 @@ func shouldSetWorkspaceAsDefault(cfg *config.Config, previousCurrent, workspaceH
 	}
 
 	legacyAuth, legacyOK := cfg.Workspaces[previousCurrent]
-	workspaceAuth, workspaceOK := cfg.Workspaces[workspaceHost]
-	if !legacyOK || !workspaceOK {
+	if !legacyOK || !isLegacyDefaultWorkspaceAlias(legacyAuth) {
 		return false
 	}
 
-	return isLegacyDefaultWorkspaceAlias(legacyAuth) && legacyAuth.Token != "" && legacyAuth.Token == workspaceAuth.Token
+	if replace {
+		// Replacing a migrated legacy default login should keep the newly authenticated workspace as default.
+		return true
+	}
+
+	workspaceAuth, workspaceOK := cfg.Workspaces[workspaceHost]
+	if !workspaceOK {
+		return false
+	}
+
+	return legacyAuth.Token != "" && legacyAuth.Token == workspaceAuth.Token
 }
 
 func requestedWorkspaceMatchesAuthResult(requestedWorkspace, resolvedWorkspace, authenticatedHost, authenticatedTeamID string) bool {
@@ -405,7 +414,7 @@ func (c *AuthLoginCmd) exchangeCodeForToken(ctx *Context, code, clientID, client
 	}
 
 	previousCurrent := ctx.Config.CurrentWorkspace
-	shouldSetDefault := shouldSetWorkspaceAsDefault(ctx.Config, previousCurrent, workspaceHost)
+	shouldSetDefault := shouldSetWorkspaceAsDefault(ctx.Config, previousCurrent, workspaceHost, replace)
 	if !replace && previousCurrent != "" && !shouldSetDefault {
 		setDefault, promptErr := promptSetDefaultWorkspace(reader, workspaceHost)
 		if promptErr != nil {

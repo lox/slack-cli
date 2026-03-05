@@ -210,11 +210,12 @@ func TestShouldSetWorkspaceAsDefault(t *testing.T) {
 		cfg             *config.Config
 		previousCurrent string
 		workspaceHost   string
+		replace         bool
 		want            bool
 	}{
-		{name: "first login", cfg: &config.Config{}, previousCurrent: "", workspaceHost: "buildkite.slack.com", want: true},
-		{name: "same workspace", cfg: &config.Config{}, previousCurrent: "buildkite.slack.com", workspaceHost: "buildkite.slack.com", want: true},
-		{name: "different workspace", cfg: &config.Config{}, previousCurrent: "buildkite-corp.slack.com", workspaceHost: "buildkite.slack.com", want: false},
+		{name: "first login", cfg: &config.Config{}, previousCurrent: "", workspaceHost: "buildkite.slack.com", replace: false, want: true},
+		{name: "same workspace", cfg: &config.Config{}, previousCurrent: "buildkite.slack.com", workspaceHost: "buildkite.slack.com", replace: false, want: true},
+		{name: "different workspace", cfg: &config.Config{}, previousCurrent: "buildkite-corp.slack.com", workspaceHost: "buildkite.slack.com", replace: false, want: false},
 		{
 			name: "legacy default alias matching token treated as same workspace",
 			cfg: &config.Config{Workspaces: map[string]config.WorkspaceAuth{
@@ -223,13 +224,24 @@ func TestShouldSetWorkspaceAsDefault(t *testing.T) {
 			}},
 			previousCurrent: "default",
 			workspaceHost:   "buildkite.slack.com",
+			replace:         false,
+			want:            true,
+		},
+		{
+			name: "legacy default alias replace without mapped workspace keeps new default",
+			cfg: &config.Config{Workspaces: map[string]config.WorkspaceAuth{
+				"default": {Token: "xoxp-legacy"},
+			}},
+			previousCurrent: "default",
+			workspaceHost:   "buildkite.slack.com",
+			replace:         true,
 			want:            true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := shouldSetWorkspaceAsDefault(tt.cfg, tt.previousCurrent, tt.workspaceHost)
+			got := shouldSetWorkspaceAsDefault(tt.cfg, tt.previousCurrent, tt.workspaceHost, tt.replace)
 			if got != tt.want {
 				t.Fatalf("shouldSetWorkspaceAsDefault(%q, %q) = %v, want %v", tt.previousCurrent, tt.workspaceHost, got, tt.want)
 			}
