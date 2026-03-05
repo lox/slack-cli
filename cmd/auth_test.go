@@ -207,20 +207,58 @@ func TestResetAllAuth(t *testing.T) {
 func TestShouldSetWorkspaceAsDefault(t *testing.T) {
 	tests := []struct {
 		name            string
+		cfg             *config.Config
 		previousCurrent string
 		workspaceHost   string
 		want            bool
 	}{
-		{name: "first login", previousCurrent: "", workspaceHost: "buildkite.slack.com", want: true},
-		{name: "same workspace", previousCurrent: "buildkite.slack.com", workspaceHost: "buildkite.slack.com", want: true},
-		{name: "different workspace", previousCurrent: "buildkite-corp.slack.com", workspaceHost: "buildkite.slack.com", want: false},
+		{name: "first login", cfg: &config.Config{}, previousCurrent: "", workspaceHost: "buildkite.slack.com", want: true},
+		{name: "same workspace", cfg: &config.Config{}, previousCurrent: "buildkite.slack.com", workspaceHost: "buildkite.slack.com", want: true},
+		{name: "different workspace", cfg: &config.Config{}, previousCurrent: "buildkite-corp.slack.com", workspaceHost: "buildkite.slack.com", want: false},
+		{
+			name: "legacy default alias matching token treated as same workspace",
+			cfg: &config.Config{Workspaces: map[string]config.WorkspaceAuth{
+				"default":             {Token: "xoxp-shared"},
+				"buildkite.slack.com": {Token: "xoxp-shared", TeamID: "TBUILD"},
+			}},
+			previousCurrent: "default",
+			workspaceHost:   "buildkite.slack.com",
+			want:            true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := shouldSetWorkspaceAsDefault(tt.previousCurrent, tt.workspaceHost)
+			got := shouldSetWorkspaceAsDefault(tt.cfg, tt.previousCurrent, tt.workspaceHost)
 			if got != tt.want {
 				t.Fatalf("shouldSetWorkspaceAsDefault(%q, %q) = %v, want %v", tt.previousCurrent, tt.workspaceHost, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRequestedWorkspaceMatchesAuthResult(t *testing.T) {
+	tests := []struct {
+		name              string
+		requested         string
+		resolvedRequested string
+		authHost          string
+		authTeamID        string
+		want              bool
+	}{
+		{name: "no requested workspace", authHost: "buildkite.slack.com", authTeamID: "TBUILD", want: true},
+		{name: "explicit host matches", requested: "buildkite.slack.com", authHost: "buildkite.slack.com", authTeamID: "TBUILD", want: true},
+		{name: "short host matches", requested: "buildkite", authHost: "buildkite.slack.com", authTeamID: "TBUILD", want: true},
+		{name: "team ID matches", requested: "TBUILD", authHost: "buildkite.slack.com", authTeamID: "TBUILD", want: true},
+		{name: "resolved workspace host wins", requested: "TBUILD", resolvedRequested: "buildkite.slack.com", authHost: "buildkite.slack.com", authTeamID: "TBUILD", want: true},
+		{name: "mismatch", requested: "buildkite-corp", authHost: "buildkite.slack.com", authTeamID: "TBUILD", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := requestedWorkspaceMatchesAuthResult(tt.requested, tt.resolvedRequested, tt.authHost, tt.authTeamID)
+			if got != tt.want {
+				t.Fatalf("requestedWorkspaceMatchesAuthResult(%q, %q, %q, %q) = %v, want %v", tt.requested, tt.resolvedRequested, tt.authHost, tt.authTeamID, got, tt.want)
 			}
 		})
 	}

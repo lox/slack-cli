@@ -95,8 +95,53 @@ func promptSetDefaultWorkspace(reader *bufio.Reader, workspaceHost string) (bool
 	return strings.EqualFold(strings.TrimSpace(choice), "y") || strings.EqualFold(strings.TrimSpace(choice), "yes"), nil
 }
 
-func shouldSetWorkspaceAsDefault(previousCurrent, workspaceHost string) bool {
-	return previousCurrent == "" || previousCurrent == workspaceHost
+func isLegacyDefaultWorkspaceAlias(auth config.WorkspaceAuth) bool {
+	return auth.Team == "" && auth.TeamID == "" && auth.URL == "" && auth.ClientID == "" && auth.ClientSecret == ""
+}
+
+func shouldSetWorkspaceAsDefault(cfg *config.Config, previousCurrent, workspaceHost string) bool {
+	previousCurrent = strings.TrimSpace(strings.ToLower(previousCurrent))
+	workspaceHost = strings.TrimSpace(strings.ToLower(workspaceHost))
+
+	if previousCurrent == "" || previousCurrent == workspaceHost {
+		return true
+	}
+
+	if cfg == nil || previousCurrent != "default" {
+		return false
+	}
+
+	legacyAuth, legacyOK := cfg.Workspaces[previousCurrent]
+	workspaceAuth, workspaceOK := cfg.Workspaces[workspaceHost]
+	if !legacyOK || !workspaceOK {
+		return false
+	}
+
+	return isLegacyDefaultWorkspaceAlias(legacyAuth) && legacyAuth.Token != "" && legacyAuth.Token == workspaceAuth.Token
+}
+
+func requestedWorkspaceMatchesAuthResult(requestedWorkspace, resolvedWorkspace, authenticatedHost, authenticatedTeamID string) bool {
+	expected := strings.TrimSpace(strings.ToLower(resolvedWorkspace))
+	if expected == "" {
+		expected = strings.TrimSpace(strings.ToLower(requestedWorkspace))
+	}
+
+	if expected == "" {
+		return true
+	}
+
+	authenticatedHost = strings.TrimSpace(strings.ToLower(authenticatedHost))
+	authenticatedTeamID = strings.TrimSpace(authenticatedTeamID)
+
+	if expected == authenticatedHost || strings.EqualFold(expected, authenticatedTeamID) {
+		return true
+	}
+
+	if !strings.Contains(expected, ".") && expected+".slack.com" == authenticatedHost {
+		return true
+	}
+
+	return false
 }
 
 // Scopes needed for the CLI
@@ -201,8 +246,6 @@ func (c *AuthLoginCmd) Run(ctx *Context) error {
 			return fmt.Errorf("client ID and client secret are required")
 		}
 	}
-	_ = resolvedWorkspace
-
 	// Generate CSRF state parameter
 	state, err := generateOAuthState()
 	if err != nil {
@@ -313,7 +356,7 @@ func (c *AuthLoginCmd) Run(ctx *Context) error {
 	select {
 	case code := <-codeChan:
 		_ = server.Shutdown(context.Background())
-		return c.exchangeCodeForToken(ctx, code, clientID, clientSecret, replace, c.AddNew, reader)
+		return c.exchangeCodeForToken(ctx, code, clientID, clientSecret, replace, c.AddNew, workspaceRef, resolvedWorkspace, reader)
 	case err := <-errChan:
 		_ = server.Shutdown(context.Background())
 		return err
@@ -323,7 +366,7 @@ func (c *AuthLoginCmd) Run(ctx *Context) error {
 	}
 }
 
-func (c *AuthLoginCmd) exchangeCodeForToken(ctx *Context, code, clientID, clientSecret string, replace bool, addNew bool, reader *bufio.Reader) error {
+func (c *AuthLoginCmd) exchangeCodeForToken(ctx *Context, code, clientID, clientSecret string, replace bool, addNew bool, requestedWorkspace, resolvedWorkspace string, reader *bufio.Reader) error {
 	token, err := slack.ExchangeOAuthCode(clientID, clientSecret, code, oauthRedirectURL)
 	if err != nil {
 		return fmt.Errorf("failed to exchange code for token: %w", err)
@@ -341,9 +384,26 @@ func (c *AuthLoginCmd) exchangeCodeForToken(ctx *Context, code, clientID, client
 		workspaceHost = "default"
 	}
 
+	if !requestedWorkspaceMatchesAuthResult(requestedWorkspace, resolvedWorkspace, workspaceHost, user.TeamID) {
+		expected := strings.TrimSpace(resolvedWorkspace)
+		if expected == "" {
+			expected = strings.TrimSpace(requestedWorkspace)
+		}
+		if expected == "" {
+			expected = "<unknown>"
+		}
+
+		authenticated := workspaceHost
+		if strings.TrimSpace(user.TeamID) != "" {
+			authenticated = fmt.Sprintf("%s (%s)", workspaceHost, user.TeamID)
+		}
+
+		return fmt.Errorf("authenticated workspace %s does not match requested workspace %s", authenticated, expected)
+	}
+
 	previousCurrent := ctx.Config.CurrentWorkspace
-	shouldSetDefault := shouldSetWorkspaceAsDefault(previousCurrent, workspaceHost)
-	if !replace && previousCurrent != "" && previousCurrent != workspaceHost {
+	shouldSetDefault := shouldSetWorkspaceAsDefault(ctx.Config, previousCurrent, workspaceHost)
+	if !replace && previousCurrent != "" && !shouldSetDefault {
 		setDefault, promptErr := promptSetDefaultWorkspace(reader, workspaceHost)
 		if promptErr != nil {
 			return fmt.Errorf("failed to read default workspace choice: %w", promptErr)
