@@ -65,6 +65,32 @@ func (c *Client) request(method string, params url.Values) ([]byte, error) {
 	return body, nil
 }
 
+func (c *Client) DownloadPrivateFile(fileURL string) ([]byte, string, error) {
+	req, err := http.NewRequest("GET", fileURL, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.userToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, "", fmt.Errorf("slack file download returned HTTP %d: %s", resp.StatusCode, resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	return body, resp.Header.Get("Content-Type"), nil
+}
+
 func (c *Client) AuthTest() (*AuthTestResponse, error) {
 	body, err := c.request("auth.test", url.Values{})
 	if err != nil {
@@ -260,9 +286,9 @@ func ExchangeOAuthCode(clientID, clientSecret, code, redirectURI string) (string
 	}
 
 	var result struct {
-		OK          bool   `json:"ok"`
-		Error       string `json:"error"`
-		AuthedUser  struct {
+		OK         bool   `json:"ok"`
+		Error      string `json:"error"`
+		AuthedUser struct {
 			AccessToken string `json:"access_token"`
 		} `json:"authed_user"`
 	}

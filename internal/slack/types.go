@@ -1,15 +1,17 @@
 package slack
 
 type Message struct {
-	Type       string   `json:"type"`
-	User       string   `json:"user"`
-	Text       string   `json:"text"`
-	TS         string   `json:"ts"`
-	ThreadTS   string   `json:"thread_ts,omitempty"`
-	ReplyCount int      `json:"reply_count,omitempty"`
-	Channel    *Channel `json:"channel,omitempty"`
-	Permalink  string   `json:"permalink,omitempty"`
-	Files      []File   `json:"files,omitempty"`
+	Type        string       `json:"type"`
+	User        string       `json:"user"`
+	Text        string       `json:"text"`
+	TS          string       `json:"ts"`
+	ThreadTS    string       `json:"thread_ts,omitempty"`
+	ReplyCount  int          `json:"reply_count,omitempty"`
+	Channel     *Channel     `json:"channel,omitempty"`
+	Permalink   string       `json:"permalink,omitempty"`
+	Files       []File       `json:"files,omitempty"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+	Blocks      []Block      `json:"blocks,omitempty"`
 }
 
 type File struct {
@@ -21,6 +23,27 @@ type File struct {
 	Size               int    `json:"size"`
 	URLPrivate         string `json:"url_private"`
 	URLPrivateDownload string `json:"url_private_download"`
+	Permalink          string `json:"permalink"`
+}
+
+type Attachment struct {
+	Title     string `json:"title"`
+	Text      string `json:"text"`
+	Fallback  string `json:"fallback"`
+	ImageURL  string `json:"image_url"`
+	TitleLink string `json:"title_link"`
+}
+
+type Block struct {
+	Type     string     `json:"type"`
+	ImageURL string     `json:"image_url,omitempty"`
+	AltText  string     `json:"alt_text,omitempty"`
+	Title    *BlockText `json:"title,omitempty"`
+}
+
+type BlockText struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
 
 type RepliesResponse struct {
