@@ -12,6 +12,7 @@ oauth_config:
       - channels:read
       - groups:history
       - groups:read
+      - files:read
       - im:history
       - im:read
       - mpim:history

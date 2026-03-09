@@ -177,6 +177,7 @@ func workspaceKeyFromAuthResult(userURL, teamID, team string) string {
 var oauthScopes = []string{
 	"channels:history",
 	"channels:read",
+	"files:read",
 	"groups:history",
 	"groups:read",
 	"im:history",

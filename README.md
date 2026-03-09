@@ -82,6 +82,7 @@ slack-cli --workspace buildkite.slack.com auth login
 ```bash
 slack-cli view <url>                    # View message, thread, or channel
 slack-cli view <url> --markdown         # Output as markdown
+slack-cli view <url> --inline-images auto|always|never
 ```
 
 ### Channels
@@ -157,8 +158,13 @@ The included manifest requests these user token scopes:
 
 - `channels:history` - Read public channel messages
 - `channels:read` - List public channels
+- `files:read` - Read file metadata and download private file/image URLs
 - `groups:history` - Read private channel messages
 - `groups:read` - List private channels
+- `im:history` - Read direct message history
+- `im:read` - Access direct message metadata
+- `mpim:history` - Read multi-party direct message history
+- `mpim:read` - Access multi-party direct message metadata
 - `search:read` - Search messages
 - `users:read` - List users
 - `users:read.email` - Lookup users by email
