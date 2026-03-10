@@ -71,7 +71,9 @@ func (c *Client) DownloadPrivateFile(fileURL string) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.userToken)
+	if isSlackHostedURL(fileURL) {
+		req.Header.Set("Authorization", "Bearer "+c.userToken)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -89,6 +91,20 @@ func (c *Client) DownloadPrivateFile(fileURL string) ([]byte, string, error) {
 	}
 
 	return body, resp.Header.Get("Content-Type"), nil
+}
+
+func isSlackHostedURL(rawURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return false
+	}
+
+	host := strings.ToLower(strings.TrimSpace(u.Hostname()))
+	if host == "" {
+		return false
+	}
+
+	return host == "slack.com" || strings.HasSuffix(host, ".slack.com")
 }
 
 func (c *Client) AuthTest() (*AuthTestResponse, error) {

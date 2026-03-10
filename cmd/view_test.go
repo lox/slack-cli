@@ -126,7 +126,7 @@ func TestMessageInlineImageURLs(t *testing.T) {
 		Files: []slack.File{
 			{
 				Mimetype:           "image/png",
-				URLPrivate:         "https://files.example/private.png",
+				URLPrivate:         "https://files.slack.com/files-pri/T123/F123/private.png",
 				URLPrivateDownload: "https://files.example/download.png",
 				Permalink:          "https://files.example/permalink.png",
 			},
@@ -139,19 +139,26 @@ func TestMessageInlineImageURLs(t *testing.T) {
 			{
 				ImageURL: "https://img.example/attachment.png",
 			},
+			{
+				ImageURL: "https://files.slack.com/files-pri/T123/F123/attachment.png",
+			},
 		},
 		Blocks: []slack.Block{
 			{
 				Type:     "image",
 				ImageURL: "https://img.example/block.png",
 			},
+			{
+				Type:     "image",
+				ImageURL: "https://files.slack.com/files-pri/T123/F456/block.png",
+			},
 		},
 	})
 
 	want := []string{
-		"https://files.example/private.png",
-		"https://img.example/attachment.png",
-		"https://img.example/block.png",
+		"https://files.slack.com/files-pri/T123/F123/private.png",
+		"https://files.slack.com/files-pri/T123/F123/attachment.png",
+		"https://files.slack.com/files-pri/T123/F456/block.png",
 	}
 
 	if len(got) != len(want) {
