@@ -196,7 +196,7 @@ func TestGetOAuthCredentials(t *testing.T) {
 		}
 	})
 
-	t.Run("can skip current workspace credentials", func(t *testing.T) {
+	t.Run("reuses stored workspace credentials when current workspace lookup is skipped", func(t *testing.T) {
 		t.Setenv("SLACK_CLIENT_ID", "")
 		t.Setenv("SLACK_CLIENT_SECRET", "")
 
@@ -207,12 +207,18 @@ func TestGetOAuthCredentials(t *testing.T) {
 			},
 		}
 
-		_, _, _, found, err := getOAuthCredentials(cfg, "", "", "", false)
+		id, secret, workspace, found, err := getOAuthCredentials(cfg, "", "", "", false)
 		if err != nil {
 			t.Fatalf("expected no error when skipping current workspace credentials, got %v", err)
 		}
-		if found {
-			t.Fatalf("expected credentials to be missing when current workspace lookup is skipped")
+		if !found {
+			t.Fatalf("expected stored workspace credentials to be reused")
+		}
+		if id != "id" || secret != "secret" {
+			t.Fatalf("expected stored workspace credentials, got %q/%q", id, secret)
+		}
+		if workspace != "" {
+			t.Fatalf("expected empty workspace ref to stay empty, got %q", workspace)
 		}
 	})
 }

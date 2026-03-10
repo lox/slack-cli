@@ -58,7 +58,42 @@ func getOAuthCredentials(cfg *config.Config, workspaceRef, flagClientID, flagCli
 		return cfg.ClientID, cfg.ClientSecret, workspaceRef, true, nil
 	}
 
+	if clientID, clientSecret, fallbackFound := anyWorkspaceOAuthCredentials(cfg); fallbackFound {
+		return clientID, clientSecret, workspaceRef, true, nil
+	}
+
 	return "", "", workspaceRef, false, nil
+}
+
+func anyWorkspaceOAuthCredentials(cfg *config.Config) (clientID, clientSecret string, found bool) {
+	if cfg == nil || len(cfg.Workspaces) == 0 {
+		return "", "", false
+	}
+
+	current := strings.TrimSpace(strings.ToLower(cfg.CurrentWorkspace))
+	if current != "" {
+		if auth, ok := cfg.Workspaces[current]; ok && auth.ClientID != "" && auth.ClientSecret != "" {
+			return auth.ClientID, auth.ClientSecret, true
+		}
+	}
+
+	keys := make([]string, 0, len(cfg.Workspaces))
+	for key := range cfg.Workspaces {
+		if key == current {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		auth := cfg.Workspaces[key]
+		if auth.ClientID != "" && auth.ClientSecret != "" {
+			return auth.ClientID, auth.ClientSecret, true
+		}
+	}
+
+	return "", "", false
 }
 
 func generateOAuthState() (string, error) {
