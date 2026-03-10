@@ -486,6 +486,9 @@ func (c *ViewCmd) messageInlineImageURLs(msg slack.Message) []string {
 		if link == "" {
 			return
 		}
+		if !isSlackHostedURL(link) {
+			return
+		}
 		if _, ok := seen[link]; ok {
 			return
 		}
@@ -534,6 +537,19 @@ func isImageFile(file slack.File) bool {
 	default:
 		return false
 	}
+}
+
+func isSlackHostedURL(rawURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return false
+	}
+
+	host := strings.ToLower(strings.TrimSpace(u.Hostname()))
+	if host == "" {
+		return false
+	}
+	return host == "slack.com" || strings.HasSuffix(host, ".slack.com")
 }
 
 func (c *ViewCmd) renderInlineImage(client *slack.Client, imageURL string) error {
