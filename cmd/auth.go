@@ -29,6 +29,7 @@ func getOAuthCredentials(cfg *config.Config, workspaceRef, flagClientID, flagCli
 	flagClientID = strings.TrimSpace(flagClientID)
 	flagClientSecret = strings.TrimSpace(flagClientSecret)
 	workspaceRef = strings.TrimSpace(workspaceRef)
+	requestedWorkspaceRef := workspaceRef
 
 	if flagClientID != "" || flagClientSecret != "" {
 		if flagClientID == "" || flagClientSecret == "" {
@@ -58,8 +59,10 @@ func getOAuthCredentials(cfg *config.Config, workspaceRef, flagClientID, flagCli
 		return cfg.ClientID, cfg.ClientSecret, workspaceRef, true, nil
 	}
 
-	if clientID, clientSecret, fallbackFound := anyWorkspaceOAuthCredentials(cfg); fallbackFound {
-		return clientID, clientSecret, workspaceRef, true, nil
+	if requestedWorkspaceRef == "" && !useCurrentWorkspace {
+		if clientID, clientSecret, fallbackFound := anyWorkspaceOAuthCredentials(cfg); fallbackFound {
+			return clientID, clientSecret, workspaceRef, true, nil
+		}
 	}
 
 	return "", "", workspaceRef, false, nil

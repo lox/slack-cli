@@ -196,6 +196,28 @@ func TestGetOAuthCredentials(t *testing.T) {
 		}
 	})
 
+	t.Run("does not reuse other workspace credentials for explicit workspace", func(t *testing.T) {
+		t.Setenv("SLACK_CLIENT_ID", "")
+		t.Setenv("SLACK_CLIENT_SECRET", "")
+
+		cfg := &config.Config{
+			Workspaces: map[string]config.WorkspaceAuth{
+				"buildkite.slack.com": {ClientID: "id", ClientSecret: "secret"},
+			},
+		}
+
+		_, _, workspace, found, err := getOAuthCredentials(cfg, "buildkite-corp.slack.com", "", "", true)
+		if err != nil {
+			t.Fatalf("expected no error when explicit workspace is missing credentials, got %v", err)
+		}
+		if found {
+			t.Fatalf("expected explicit workspace lookup to require workspace-specific, env, or global credentials")
+		}
+		if workspace != "buildkite-corp.slack.com" {
+			t.Fatalf("expected workspace ref to be preserved, got %q", workspace)
+		}
+	})
+
 	t.Run("reuses stored workspace credentials when current workspace lookup is skipped", func(t *testing.T) {
 		t.Setenv("SLACK_CLIENT_ID", "")
 		t.Setenv("SLACK_CLIENT_SECRET", "")
