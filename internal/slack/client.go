@@ -65,6 +65,56 @@ func (c *Client) request(method string, params url.Values) ([]byte, error) {
 	return body, nil
 }
 
+func (c *Client) DownloadPrivateFile(fileURL string, maxBytes int) ([]byte, string, error) {
+	req, err := http.NewRequest("GET", fileURL, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if isSlackHostedURL(fileURL) {
+		req.Header.Set("Authorization", "Bearer "+c.userToken)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, "", fmt.Errorf("slack file download returned HTTP %d: %s", resp.StatusCode, resp.Status)
+	}
+
+	if maxBytes <= 0 {
+		return nil, "", fmt.Errorf("maxBytes must be > 0")
+	}
+
+	limitedReader := io.LimitReader(resp.Body, int64(maxBytes)+1)
+	body, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read response: %w", err)
+	}
+	if len(body) > maxBytes {
+		return nil, "", fmt.Errorf("download exceeds limit (%d bytes)", maxBytes)
+	}
+
+	return body, resp.Header.Get("Content-Type"), nil
+}
+
+func isSlackHostedURL(rawURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return false
+	}
+
+	host := strings.ToLower(strings.TrimSpace(u.Hostname()))
+	if host == "" {
+		return false
+	}
+
+	return host == "slack.com" || strings.HasSuffix(host, ".slack.com")
+}
+
 func (c *Client) AuthTest() (*AuthTestResponse, error) {
 	body, err := c.request("auth.test", url.Values{})
 	if err != nil {
@@ -260,9 +310,9 @@ func ExchangeOAuthCode(clientID, clientSecret, code, redirectURI string) (string
 	}
 
 	var result struct {
-		OK          bool   `json:"ok"`
-		Error       string `json:"error"`
-		AuthedUser  struct {
+		OK         bool   `json:"ok"`
+		Error      string `json:"error"`
+		AuthedUser struct {
 			AccessToken string `json:"access_token"`
 		} `json:"authed_user"`
 	}

@@ -1,20 +1,24 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/lox/slack-cli/internal/output"
 	"github.com/lox/slack-cli/internal/slack"
+	"golang.org/x/term"
 )
 
 type ViewCmd struct {
-	URL      string `arg:"" help:"Slack URL (message, thread, or channel)"`
-	Markdown bool   `help:"Output as markdown instead of terminal formatting" short:"m"`
-	Limit    int    `help:"Maximum messages to show for channels/threads" default:"20"`
-	Raw      bool   `help:"Don't resolve user/channel mentions" short:"r"`
+	URL          string `arg:"" help:"Slack URL (message, thread, or channel)"`
+	Markdown     bool   `help:"Output as markdown instead of terminal formatting" short:"m"`
+	Limit        int    `help:"Maximum messages to show for channels/threads" default:"20"`
+	Raw          bool   `help:"Don't resolve user/channel mentions" short:"r"`
+	InlineImages string `help:"Inline image rendering mode: auto, always, never" default:"auto" enum:"auto,always,never"`
 
 	resolver *slack.Resolver
 }
@@ -25,6 +29,11 @@ type slackURLInfo struct {
 	ThreadTS  string
 	IsThread  bool
 }
+
+const (
+	maxInlineImageBytes = 10 << 20 // 10 MiB
+	inlineImageChunkLen = 4096
+)
 
 func parseSlackURL(rawURL string) (*slackURLInfo, error) {
 	u, err := url.Parse(rawURL)
@@ -96,14 +105,50 @@ func (c *ViewCmd) Run(ctx *Context) error {
 		return fmt.Errorf("failed to get channel info: %w", err)
 	}
 
-	// Build markdown content, then render appropriately
-	md := c.buildMarkdown(client, channel, info)
-
 	if c.Markdown {
+		md := c.buildMarkdown(client, channel, info)
 		fmt.Print(md)
 		return nil
 	}
+
+	inlineImagesMode, err := normalizeInlineImagesMode(c.InlineImages)
+	if err != nil {
+		return err
+	}
+
+	if c.shouldRenderInlineImages(inlineImagesMode) {
+		return c.renderGhosttyView(client, channel, info)
+	}
+
+	md := c.buildMarkdown(client, channel, info)
 	return output.RenderMarkdown(md)
+}
+
+func normalizeInlineImagesMode(mode string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(mode))
+	if normalized == "" {
+		normalized = "auto"
+	}
+
+	switch normalized {
+	case "auto", "always", "never":
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("invalid inline image mode %q (expected auto, always, or never)", mode)
+	}
+}
+
+func (c *ViewCmd) shouldRenderInlineImages(mode string) bool {
+	switch mode {
+	case "never":
+		return false
+	case "always":
+		return term.IsTerminal(int(os.Stdout.Fd()))
+	case "auto":
+		return supportsGhosttyInlineImages()
+	default:
+		return false
+	}
 }
 
 func (c *ViewCmd) buildMarkdown(client *slack.Client, channel *slack.Channel, info *slackURLInfo) string {
@@ -135,20 +180,24 @@ func (c *ViewCmd) buildThreadMarkdown(sb *strings.Builder, client *slack.Client,
 	for i, msg := range replies.Messages {
 		username := c.resolver.ResolveUser(msg.User)
 		timestamp := c.formatTimestamp(msg.TS)
-		text := c.formatText(msg.Text)
+		body := c.formatMessageBody(msg)
 
 		if i == 0 {
 			fmt.Fprintf(sb, "**%s** _%s_\n\n", username, timestamp)
-			fmt.Fprintf(sb, "%s\n\n", text)
+			if body != "" {
+				fmt.Fprintf(sb, "%s\n\n", body)
+			}
 			if len(replies.Messages) > 1 {
 				fmt.Fprintf(sb, "---\n\n**%d replies**\n\n", len(replies.Messages)-1)
 			}
 		} else {
 			fmt.Fprintf(sb, "> **%s** _%s_\n>\n", username, timestamp)
-			// Indent multiline text in blockquote
-			lines := strings.Split(text, "\n")
-			for _, line := range lines {
-				fmt.Fprintf(sb, "> %s\n", line)
+			// Indent multiline body in blockquote.
+			if body != "" {
+				lines := strings.Split(body, "\n")
+				for _, line := range lines {
+					fmt.Fprintf(sb, "> %s\n", line)
+				}
 			}
 			sb.WriteString("\n")
 		}
@@ -167,16 +216,115 @@ func (c *ViewCmd) buildChannelMarkdown(sb *strings.Builder, client *slack.Client
 		msg := history.Messages[i]
 		username := c.resolver.ResolveUser(msg.User)
 		timestamp := c.formatTimestamp(msg.TS)
-		text := c.formatText(msg.Text)
+		body := c.formatMessageBody(msg)
 
 		fmt.Fprintf(sb, "**%s** _%s_\n\n", username, timestamp)
-		fmt.Fprintf(sb, "%s\n\n", text)
+		if body != "" {
+			fmt.Fprintf(sb, "%s\n\n", body)
+		}
 
 		if msg.ReplyCount > 0 {
 			fmt.Fprintf(sb, "_(%d replies)_\n\n", msg.ReplyCount)
 		}
 		sb.WriteString("---\n\n")
 	}
+}
+
+func (c *ViewCmd) formatMessageBody(msg slack.Message) string {
+	parts := make([]string, 0, 2)
+
+	text := strings.TrimSpace(c.formatText(msg.Text))
+	if text != "" {
+		parts = append(parts, text)
+	}
+
+	attachments := c.formatMessageAttachments(msg)
+	if attachments != "" {
+		parts = append(parts, attachments)
+	}
+
+	return strings.Join(parts, "\n\n")
+}
+
+func (c *ViewCmd) formatMessageAttachments(msg slack.Message) string {
+	lines := make([]string, 0, len(msg.Files)+len(msg.Attachments)+len(msg.Blocks))
+	seen := make(map[string]struct{})
+
+	addLine := func(kind, label, link string) {
+		label = strings.TrimSpace(strings.ReplaceAll(label, "\n", " "))
+		if label == "" {
+			label = strings.ToLower(kind)
+		}
+
+		// De-duplicate repeated references that can appear in files/blocks/attachments.
+		key := kind + "|" + label + "|" + link
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+
+		if link != "" {
+			lines = append(lines, fmt.Sprintf("- %s: [%s](%s)", kind, label, link))
+			return
+		}
+		lines = append(lines, fmt.Sprintf("- %s: %s", kind, label))
+	}
+
+	for _, file := range msg.Files {
+		label := strings.TrimSpace(file.Title)
+		if label == "" {
+			label = strings.TrimSpace(file.Name)
+		}
+		link := strings.TrimSpace(file.Permalink)
+		if link == "" {
+			link = strings.TrimSpace(file.URLPrivate)
+		}
+		if link == "" {
+			link = strings.TrimSpace(file.URLPrivateDownload)
+		}
+
+		kind := "File"
+		if strings.HasPrefix(strings.ToLower(file.Mimetype), "image/") {
+			kind = "Image"
+		}
+		addLine(kind, label, link)
+	}
+
+	for _, attachment := range msg.Attachments {
+		if attachment.ImageURL == "" && attachment.TitleLink == "" {
+			continue
+		}
+		label := attachment.Title
+		if label == "" {
+			label = attachment.Text
+		}
+		if label == "" {
+			label = attachment.Fallback
+		}
+		link := strings.TrimSpace(attachment.ImageURL)
+		kind := "Image"
+		if link == "" {
+			link = strings.TrimSpace(attachment.TitleLink)
+			kind = "File"
+		}
+		addLine(kind, label, link)
+	}
+
+	for _, block := range msg.Blocks {
+		if block.Type != "image" || block.ImageURL == "" {
+			continue
+		}
+		label := block.AltText
+		if label == "" && block.Title != nil {
+			label = block.Title.Text
+		}
+		addLine("Image", label, strings.TrimSpace(block.ImageURL))
+	}
+
+	if len(lines) == 0 {
+		return ""
+	}
+	return "**Attachments**\n" + strings.Join(lines, "\n")
 }
 
 func (c *ViewCmd) formatText(text string) string {
@@ -204,4 +352,260 @@ func (c *ViewCmd) formatTimestamp(ts string) string {
 		return t.Format("Jan 2, 3:04 PM")
 	}
 	return t.Format("Jan 2, 2006 3:04 PM")
+}
+
+func (c *ViewCmd) renderGhosttyView(client *slack.Client, channel *slack.Channel, info *slackURLInfo) error {
+	channelName := "#" + channel.Name
+	if channel.IsIM || channel.IsMPIM {
+		channelName = "DM"
+	}
+	if err := output.RenderMarkdown(fmt.Sprintf("# %s\n\n", channelName)); err != nil {
+		return err
+	}
+
+	if info.MessageTS != "" {
+		return c.renderGhosttyThread(client, info)
+	}
+	return c.renderGhosttyChannel(client, info.Channel)
+}
+
+func (c *ViewCmd) renderGhosttyThread(client *slack.Client, info *slackURLInfo) error {
+	replies, err := client.GetConversationReplies(info.Channel, info.ThreadTS, c.Limit)
+	if err != nil {
+		return fmt.Errorf("failed to get thread: %w", err)
+	}
+
+	for i, msg := range replies.Messages {
+		var sb strings.Builder
+
+		username := c.resolver.ResolveUser(msg.User)
+		timestamp := c.formatTimestamp(msg.TS)
+		body := c.formatMessageBody(msg)
+
+		if i == 0 {
+			fmt.Fprintf(&sb, "**%s** _%s_\n\n", username, timestamp)
+			if body != "" {
+				fmt.Fprintf(&sb, "%s\n\n", body)
+			}
+		} else {
+			fmt.Fprintf(&sb, "> **%s** _%s_\n>\n", username, timestamp)
+			if body != "" {
+				lines := strings.Split(body, "\n")
+				for _, line := range lines {
+					fmt.Fprintf(&sb, "> %s\n", line)
+				}
+			}
+			sb.WriteString("\n")
+		}
+
+		if err := output.RenderMarkdown(sb.String()); err != nil {
+			return err
+		}
+		c.renderInlineImages(client, c.messageInlineImageURLs(msg))
+
+		if i == 0 && len(replies.Messages) > 1 {
+			if err := output.RenderMarkdown(fmt.Sprintf("---\n\n**%d replies**\n\n", len(replies.Messages)-1)); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *ViewCmd) renderGhosttyChannel(client *slack.Client, channelID string) error {
+	history, err := client.GetConversationHistory(channelID, c.Limit)
+	if err != nil {
+		return fmt.Errorf("failed to get channel history: %w", err)
+	}
+
+	for i := len(history.Messages) - 1; i >= 0; i-- {
+		msg := history.Messages[i]
+		username := c.resolver.ResolveUser(msg.User)
+		timestamp := c.formatTimestamp(msg.TS)
+		body := c.formatMessageBody(msg)
+
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "**%s** _%s_\n\n", username, timestamp)
+		if body != "" {
+			fmt.Fprintf(&sb, "%s\n\n", body)
+		}
+		if msg.ReplyCount > 0 {
+			fmt.Fprintf(&sb, "_(%d replies)_\n\n", msg.ReplyCount)
+		}
+
+		if err := output.RenderMarkdown(sb.String()); err != nil {
+			return err
+		}
+		c.renderInlineImages(client, c.messageInlineImageURLs(msg))
+
+		if err := output.RenderMarkdown("---\n\n"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func supportsGhosttyInlineImages() bool {
+	termProgram := strings.ToLower(strings.TrimSpace(os.Getenv("TERM_PROGRAM")))
+	termName := strings.ToLower(strings.TrimSpace(os.Getenv("TERM")))
+
+	isGhostty := termProgram == "ghostty" || strings.Contains(termName, "ghostty")
+	if !isGhostty {
+		return false
+	}
+
+	return term.IsTerminal(int(os.Stdout.Fd()))
+}
+
+func (c *ViewCmd) renderInlineImages(client *slack.Client, imageURLs []string) {
+	if len(imageURLs) == 0 {
+		return
+	}
+
+	printed := false
+	for _, imageURL := range imageURLs {
+		if err := c.renderInlineImage(client, imageURL); err != nil {
+			continue
+		}
+		printed = true
+	}
+
+	if printed {
+		fmt.Println()
+	}
+}
+
+func (c *ViewCmd) messageInlineImageURLs(msg slack.Message) []string {
+	seen := make(map[string]struct{})
+	links := []string{}
+
+	add := func(link string) {
+		link = strings.TrimSpace(link)
+		if link == "" {
+			return
+		}
+		if !isSlackHostedURL(link) {
+			return
+		}
+		if _, ok := seen[link]; ok {
+			return
+		}
+		seen[link] = struct{}{}
+		links = append(links, link)
+	}
+
+	for _, file := range msg.Files {
+		if !isImageFile(file) {
+			continue
+		}
+
+		link := strings.TrimSpace(file.URLPrivate)
+		if link == "" {
+			link = strings.TrimSpace(file.URLPrivateDownload)
+		}
+		if link == "" {
+			link = strings.TrimSpace(file.Permalink)
+		}
+		add(link)
+	}
+
+	for _, attachment := range msg.Attachments {
+		add(attachment.ImageURL)
+	}
+
+	for _, block := range msg.Blocks {
+		if block.Type != "image" {
+			continue
+		}
+		add(block.ImageURL)
+	}
+
+	return links
+}
+
+func isImageFile(file slack.File) bool {
+	mimeType := strings.ToLower(strings.TrimSpace(file.Mimetype))
+	if strings.HasPrefix(mimeType, "image/") {
+		return true
+	}
+
+	switch strings.ToLower(strings.TrimSpace(file.Filetype)) {
+	case "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSlackHostedURL(rawURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return false
+	}
+
+	host := strings.ToLower(strings.TrimSpace(u.Hostname()))
+	if host == "" {
+		return false
+	}
+	return host == "slack.com" || strings.HasSuffix(host, ".slack.com")
+}
+
+func (c *ViewCmd) renderInlineImage(client *slack.Client, imageURL string) error {
+	imageData, contentType, err := client.DownloadPrivateFile(imageURL, maxInlineImageBytes)
+	if err != nil {
+		return err
+	}
+
+	if strings.TrimSpace(contentType) != "" {
+		mediaType := strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+		if mediaType != "" && !strings.HasPrefix(mediaType, "image/") {
+			return fmt.Errorf("not an image content type: %s", mediaType)
+		}
+	}
+
+	if len(imageData) == 0 {
+		return fmt.Errorf("image download was empty")
+	}
+	cols := 80
+	if width, _, sizeErr := term.GetSize(int(os.Stdout.Fd())); sizeErr == nil && width > 0 {
+		cols = width - 4
+		if cols > 120 {
+			cols = 120
+		}
+		if cols < 20 {
+			cols = 20
+		}
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(imageData)
+	firstChunk := true
+
+	for len(encoded) > 0 {
+		chunkLen := inlineImageChunkLen
+		if chunkLen > len(encoded) {
+			chunkLen = len(encoded)
+		}
+		chunk := encoded[:chunkLen]
+		encoded = encoded[chunkLen:]
+
+		hasMore := 0
+		if len(encoded) > 0 {
+			hasMore = 1
+		}
+
+		var params string
+		if firstChunk {
+			params = fmt.Sprintf("a=T,f=100,c=%d,m=%d", cols, hasMore)
+			firstChunk = false
+		} else {
+			params = fmt.Sprintf("m=%d", hasMore)
+		}
+
+		_, _ = fmt.Printf("\x1b_G%s;%s\x1b\\", params, chunk)
+	}
+
+	fmt.Println()
+	return nil
 }
