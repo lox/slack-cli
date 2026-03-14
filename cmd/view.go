@@ -553,7 +553,7 @@ func isSlackHostedURL(rawURL string) bool {
 }
 
 func (c *ViewCmd) renderInlineImage(client *slack.Client, imageURL string) error {
-	imageData, contentType, err := client.DownloadPrivateFile(imageURL)
+	imageData, contentType, err := client.DownloadPrivateFile(imageURL, maxInlineImageBytes)
 	if err != nil {
 		return err
 	}
@@ -568,10 +568,6 @@ func (c *ViewCmd) renderInlineImage(client *slack.Client, imageURL string) error
 	if len(imageData) == 0 {
 		return fmt.Errorf("image download was empty")
 	}
-	if len(imageData) > maxInlineImageBytes {
-		return fmt.Errorf("image too large (%d bytes)", len(imageData))
-	}
-
 	cols := 80
 	if width, _, sizeErr := term.GetSize(int(os.Stdout.Fd())); sizeErr == nil && width > 0 {
 		cols = width - 4

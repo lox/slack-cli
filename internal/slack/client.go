@@ -65,7 +65,7 @@ func (c *Client) request(method string, params url.Values) ([]byte, error) {
 	return body, nil
 }
 
-func (c *Client) DownloadPrivateFile(fileURL string) ([]byte, string, error) {
+func (c *Client) DownloadPrivateFile(fileURL string, maxBytes int) ([]byte, string, error) {
 	req, err := http.NewRequest("GET", fileURL, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create request: %w", err)
@@ -85,9 +85,17 @@ func (c *Client) DownloadPrivateFile(fileURL string) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("slack file download returned HTTP %d: %s", resp.StatusCode, resp.Status)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	if maxBytes <= 0 {
+		return nil, "", fmt.Errorf("maxBytes must be > 0")
+	}
+
+	limitedReader := io.LimitReader(resp.Body, int64(maxBytes)+1)
+	body, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to read response: %w", err)
+	}
+	if len(body) > maxBytes {
+		return nil, "", fmt.Errorf("download exceeds limit (%d bytes)", maxBytes)
 	}
 
 	return body, resp.Header.Get("Content-Type"), nil
