@@ -89,6 +89,7 @@ slack-cli view <url> --markdown         # Output as markdown
 ```bash
 slack-cli channel list                  # List channels you're in
 slack-cli channel read #general         # Read recent messages
+slack-cli channel read <url> --markdown # Read by URL as markdown
 slack-cli channel info #general         # Show channel details
 ```
 
@@ -103,6 +104,7 @@ slack-cli search "in:#engineering bug"  # Search in channel
 
 ```bash
 slack-cli thread read <url>                      # Read thread by URL
+slack-cli thread read <url> --markdown           # Read thread as markdown
 slack-cli thread read -c C123 -t 1234567890.123  # Read by channel+ts
 ```
 
@@ -135,7 +137,9 @@ slack-cli --workspace buildkite.slack.com search "deploy"
 slack-cli --workspace T12345678 channel list
 ```
 
-For URL-based commands (`view`, `thread read <url>`), the CLI automatically selects the token from the URL workspace when possible.
+For URL-based commands (`view`, `thread read <url>`, `channel read <url>`, `channel info <url>`), the CLI automatically selects the token from the URL workspace when possible.
+
+When a channel lookup returns `channel_not_found` and you have multiple workspaces configured, the CLI now suggests `--workspace` values to try.
 
 ## Agent Skill
 

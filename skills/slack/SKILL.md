@@ -26,9 +26,9 @@ See https://github.com/lox/slack-cli for setup instructions (Slack app creation 
 slack-cli view <url>          # View any Slack URL (message, thread, or channel)
 slack-cli search <query>      # Search messages
 slack-cli channel list        # List channels you're a member of
-slack-cli channel read        # Read recent messages from a channel
-slack-cli channel info        # Show channel information
-slack-cli thread read         # Read a thread by URL or channel+timestamp
+slack-cli channel read        # Read recent messages from a channel name, ID, or URL
+slack-cli channel info        # Show channel information by name, ID, or URL
+slack-cli thread read         # Read a thread by URL or channel+timestamp (supports --markdown)
 slack-cli user list           # List users in the workspace
 slack-cli user info           # Show user information
 slack-cli auth config         # Configure Slack app credentials
@@ -55,6 +55,7 @@ slack-cli search "in:#channel-name keyword"
 
 ```bash
 slack-cli channel read #general --limit 50
+slack-cli channel read "https://workspace.slack.com/archives/C123" --markdown
 ```
 
 ## Discovering Options
@@ -69,7 +70,8 @@ slack-cli search --help
 
 ## Notes
 
-- Use `--markdown` flag when you need to process or quote the output
+- Use `--markdown` with `view`, `thread read`, or `channel read` when you need structured output
 - Thread URLs with `thread_ts` parameter are automatically detected
 - Channel names can include or omit the `#` prefix
+- If you see `channel_not_found` and multiple workspaces are configured, retry with `--workspace <workspace>`
 - User lookup accepts both user IDs (U123ABC) and email addresses

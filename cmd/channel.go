@@ -39,23 +39,25 @@ func (c *ChannelListCmd) Run(ctx *Context) error {
 }
 
 type ChannelReadCmd struct {
-	Channel string `arg:"" help:"Channel name or ID"`
-	Limit   int    `help:"Number of messages to show" default:"20"`
+	Channel  string `arg:"" help:"Channel name, ID, or Slack URL"`
+	Limit    int    `help:"Number of messages to show" default:"20"`
+	Markdown bool   `help:"Output as markdown" short:"m"`
 }
 
 func (c *ChannelReadCmd) Run(ctx *Context) error {
-	client, err := ctx.NewClient("")
+	channelID, urlHint, err := parseChannelReference(c.Channel)
+	if err != nil {
+		return err
+	}
+
+	client, err := ctx.NewClient(urlHint)
 	if err != nil {
 		return err
 	}
 	resolver := slack.NewResolver(client)
 
 	// Resolve channel name to ID if needed
-	channelID := c.Channel
-	if strings.HasPrefix(c.Channel, "#") {
-		channelID = strings.TrimPrefix(c.Channel, "#")
-	}
-	if !strings.HasPrefix(channelID, "C") && !strings.HasPrefix(channelID, "G") {
+	if !isSlackChannelID(channelID) {
 		// Try to find by name
 		resp, err := client.ListConversations("public_channel,private_channel", 1000)
 		if err != nil {
@@ -71,7 +73,14 @@ func (c *ChannelReadCmd) Run(ctx *Context) error {
 
 	history, err := client.GetConversationHistory(channelID, c.Limit)
 	if err != nil {
+		err = ctx.augmentChannelNotFoundError(urlHint, err)
+		err = ctx.augmentCrossWorkspaceChannelHint(err)
 		return fmt.Errorf("failed to get channel history: %w", err)
+	}
+
+	if c.Markdown {
+		fmt.Print(c.formatHistoryAsMarkdown(history.Messages, resolver))
+		return nil
 	}
 
 	// Print messages in reverse order (oldest first)
@@ -84,20 +93,59 @@ func (c *ChannelReadCmd) Run(ctx *Context) error {
 	return nil
 }
 
+func (c *ChannelReadCmd) formatHistoryAsMarkdown(messages []slack.Message, resolver *slack.Resolver) string {
+	var sb strings.Builder
+
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		username := resolver.ResolveUser(msg.User)
+		text := resolver.FormatText(msg.Text)
+
+		fmt.Fprintf(&sb, "**%s** _%s_\n\n", username, msg.TS)
+		fmt.Fprintf(&sb, "%s\n\n", text)
+		if msg.ReplyCount > 0 {
+			fmt.Fprintf(&sb, "_(%d replies)_\n\n", msg.ReplyCount)
+		}
+		if i > 0 {
+			sb.WriteString("---\n\n")
+		}
+	}
+
+	return sb.String()
+}
+
 type ChannelInfoCmd struct {
-	Channel string `arg:"" help:"Channel name or ID"`
+	Channel string `arg:"" help:"Channel name, ID, or Slack URL"`
 }
 
 func (c *ChannelInfoCmd) Run(ctx *Context) error {
-	client, err := ctx.NewClient("")
+	channelID, urlHint, err := parseChannelReference(c.Channel)
 	if err != nil {
 		return err
 	}
 
-	channelID := strings.TrimPrefix(c.Channel, "#")
+	client, err := ctx.NewClient(urlHint)
+	if err != nil {
+		return err
+	}
+
+	if !isSlackChannelID(channelID) {
+		resp, err := client.ListConversations("public_channel,private_channel", 1000)
+		if err != nil {
+			return fmt.Errorf("failed to list channels: %w", err)
+		}
+		for _, ch := range resp.Channels {
+			if ch.Name == channelID {
+				channelID = ch.ID
+				break
+			}
+		}
+	}
 
 	info, err := client.GetConversationInfo(channelID)
 	if err != nil {
+		err = ctx.augmentChannelNotFoundError(urlHint, err)
+		err = ctx.augmentCrossWorkspaceChannelHint(err)
 		return fmt.Errorf("failed to get channel info: %w", err)
 	}
 
@@ -113,4 +161,25 @@ func (c *ChannelInfoCmd) Run(ctx *Context) error {
 	}
 
 	return nil
+}
+
+func parseChannelReference(channel string) (channelID string, urlHint string, err error) {
+	trimmed := strings.TrimSpace(channel)
+	if trimmed == "" {
+		return "", "", fmt.Errorf("channel is required")
+	}
+
+	if strings.HasPrefix(trimmed, "https://") || strings.HasPrefix(trimmed, "http://") {
+		info, parseErr := parseSlackURL(trimmed)
+		if parseErr != nil {
+			return "", "", fmt.Errorf("failed to parse channel URL: %w", parseErr)
+		}
+		return info.Channel, trimmed, nil
+	}
+
+	return strings.TrimPrefix(trimmed, "#"), "", nil
+}
+
+func isSlackChannelID(channelID string) bool {
+	return strings.HasPrefix(channelID, "C") || strings.HasPrefix(channelID, "G") || strings.HasPrefix(channelID, "D")
 }

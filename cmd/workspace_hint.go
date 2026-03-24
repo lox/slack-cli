@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/lox/slack-cli/internal/slack"
@@ -37,4 +38,35 @@ func (ctx *Context) augmentChannelNotFoundError(rawURL string, err error) error 
 	}
 
 	return err
+}
+
+func (ctx *Context) augmentCrossWorkspaceChannelHint(err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.TrimSpace(ctx.Workspace) != "" {
+		return err
+	}
+	if !strings.Contains(err.Error(), "slack API error: channel_not_found") {
+		return err
+	}
+
+	current := strings.TrimSpace(ctx.Config.CurrentWorkspace)
+	if current == "" {
+		return err
+	}
+
+	otherWorkspaces := make([]string, 0, len(ctx.Config.Workspaces))
+	for key, auth := range ctx.Config.Workspaces {
+		if key == current || strings.TrimSpace(auth.Token) == "" {
+			continue
+		}
+		otherWorkspaces = append(otherWorkspaces, key)
+	}
+	if len(otherWorkspaces) == 0 {
+		return err
+	}
+	sort.Strings(otherWorkspaces)
+
+	return fmt.Errorf("%w. This channel may exist in another workspace. Current workspace is %s; try one of: --workspace %s", err, current, strings.Join(otherWorkspaces, " or --workspace "))
 }

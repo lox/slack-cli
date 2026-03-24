@@ -38,7 +38,7 @@ func (ctx *Context) resolveToken(urlHint string) (string, error) {
 
 	token, _, err := ctx.Config.TokenForWorkspace(workspaceHint)
 	if err != nil {
-		if workspaceHint != "" && strings.TrimSpace(ctx.Workspace) == "" {
+		if workspaceHint != "" && strings.TrimSpace(ctx.Workspace) == "" && ctx.shouldFallbackToCurrentWorkspaceForURLHint() {
 			fallbackToken, _, fallbackErr := ctx.Config.TokenForWorkspace("")
 			if fallbackErr == nil {
 				return fallbackToken, nil
@@ -52,6 +52,28 @@ func (ctx *Context) resolveToken(urlHint string) (string, error) {
 	}
 
 	return token, nil
+}
+
+func (ctx *Context) shouldFallbackToCurrentWorkspaceForURLHint() bool {
+	if ctx.Config == nil {
+		return false
+	}
+
+	tokenBackedCount := 0
+	tokenBackedWorkspace := ""
+	for key, auth := range ctx.Config.Workspaces {
+		if strings.TrimSpace(auth.Token) == "" {
+			continue
+		}
+		tokenBackedCount++
+		tokenBackedWorkspace = key
+		if tokenBackedCount > 1 {
+			return false
+		}
+	}
+
+	// Preserve legacy behaviour for migrated single-workspace configs.
+	return tokenBackedCount == 1 && tokenBackedWorkspace == "default"
 }
 
 type CLI struct {

@@ -260,9 +260,9 @@ func ExchangeOAuthCode(clientID, clientSecret, code, redirectURI string) (string
 	}
 
 	var result struct {
-		OK          bool   `json:"ok"`
-		Error       string `json:"error"`
-		AuthedUser  struct {
+		OK         bool   `json:"ok"`
+		Error      string `json:"error"`
+		AuthedUser struct {
 			AccessToken string `json:"access_token"`
 		} `json:"authed_user"`
 	}
@@ -300,10 +300,22 @@ func ParseThreadURL(threadURL string) (channel string, threadTS string, err erro
 	path := strings.Trim(u.Path, "/")
 	parts := strings.Split(path, "/")
 
+	for i, part := range parts {
+		if part == "archives" && i+1 < len(parts) {
+			channel = parts[i+1]
+			break
+		}
+	}
+
+	// Reply permalinks include both the reply ts in the path and the parent
+	// thread ts in query params; always prefer thread_ts when present.
+	if queryThreadTS := strings.TrimSpace(u.Query().Get("thread_ts")); channel != "" && queryThreadTS != "" {
+		return channel, queryThreadTS, nil
+	}
+
 	// Format: /archives/C123ABC/p1234567890123456
 	for i, part := range parts {
 		if part == "archives" && i+2 < len(parts) {
-			channel = parts[i+1]
 			ts := parts[i+2]
 			if strings.HasPrefix(ts, "p") {
 				// Convert p1234567890123456 to 1234567890.123456
@@ -314,15 +326,6 @@ func ParseThreadURL(threadURL string) (channel string, threadTS string, err erro
 			}
 			if channel != "" && threadTS != "" {
 				return channel, threadTS, nil
-			}
-		}
-	}
-
-	// Format with thread_ts in query param
-	if threadTS := u.Query().Get("thread_ts"); threadTS != "" {
-		for i, part := range parts {
-			if part == "archives" && i+1 < len(parts) {
-				return parts[i+1], threadTS, nil
 			}
 		}
 	}
