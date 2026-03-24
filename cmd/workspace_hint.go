@@ -40,7 +40,7 @@ func (ctx *Context) augmentChannelNotFoundError(rawURL string, err error) error 
 	return err
 }
 
-func (ctx *Context) augmentCrossWorkspaceChannelHint(err error) error {
+func (ctx *Context) augmentCrossWorkspaceChannelHint(rawURL string, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -51,7 +51,7 @@ func (ctx *Context) augmentCrossWorkspaceChannelHint(err error) error {
 		return err
 	}
 
-	current := strings.TrimSpace(ctx.Config.CurrentWorkspace)
+	current := ctx.workspaceUsedForRequest(rawURL)
 	if current == "" {
 		return err
 	}
@@ -69,4 +69,27 @@ func (ctx *Context) augmentCrossWorkspaceChannelHint(err error) error {
 	sort.Strings(otherWorkspaces)
 
 	return fmt.Errorf("%w. This channel may exist in another workspace. Current workspace is %s; try one of: --workspace %s", err, current, strings.Join(otherWorkspaces, " or --workspace "))
+}
+
+func (ctx *Context) workspaceUsedForRequest(rawURL string) string {
+	if ctx.Config == nil {
+		return ""
+	}
+
+	if host, teamID, err := slack.ExtractWorkspaceRef(rawURL); err == nil {
+		if host != "" {
+			if resolved, resolveErr := ctx.Config.ResolveWorkspace(host); resolveErr == nil {
+				return resolved
+			}
+			return host
+		}
+		if teamID != "" {
+			if resolved, resolveErr := ctx.Config.ResolveWorkspace(teamID); resolveErr == nil {
+				return resolved
+			}
+			return teamID
+		}
+	}
+
+	return strings.TrimSpace(ctx.Config.CurrentWorkspace)
 }

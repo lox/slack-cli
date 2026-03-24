@@ -74,7 +74,7 @@ func (c *ChannelReadCmd) Run(ctx *Context) error {
 	history, err := client.GetConversationHistory(channelID, c.Limit)
 	if err != nil {
 		err = ctx.augmentChannelNotFoundError(urlHint, err)
-		err = ctx.augmentCrossWorkspaceChannelHint(err)
+		err = ctx.augmentCrossWorkspaceChannelHint(urlHint, err)
 		return fmt.Errorf("failed to get channel history: %w", err)
 	}
 
@@ -145,7 +145,7 @@ func (c *ChannelInfoCmd) Run(ctx *Context) error {
 	info, err := client.GetConversationInfo(channelID)
 	if err != nil {
 		err = ctx.augmentChannelNotFoundError(urlHint, err)
-		err = ctx.augmentCrossWorkspaceChannelHint(err)
+		err = ctx.augmentCrossWorkspaceChannelHint(urlHint, err)
 		return fmt.Errorf("failed to get channel info: %w", err)
 	}
 

@@ -62,7 +62,7 @@ func (c *ThreadReadCmd) Run(ctx *Context) error {
 
 func (c *ThreadReadCmd) augmentReadError(ctx *Context, err error) error {
 	err = ctx.augmentChannelNotFoundError(c.URL, err)
-	err = ctx.augmentCrossWorkspaceChannelHint(err)
+	err = ctx.augmentCrossWorkspaceChannelHint(c.URL, err)
 	return err
 }
 
