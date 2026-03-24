@@ -1,8 +1,16 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
+	"image"
+	"image/draw"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+	"math"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -32,8 +40,23 @@ type slackURLInfo struct {
 
 const (
 	maxInlineImageBytes = 10 << 20 // 10 MiB
+	maxInlineRGBABytes  = 40 << 20 // 40 MiB decoded RGBA payload
 	inlineImageChunkLen = 4096
+	kittyImageFormatPNG = 100
+	kittyImageFormatRaw = 32
+
+	defaultInlineImageCols = 32
+	minInlineImageCols     = 20
+	maxInlineImageCols     = 48
+	maxInlineImageRows     = 24
 )
+
+type inlineImagePayload struct {
+	format int
+	width  int
+	height int
+	data   []byte
+}
 
 func parseSlackURL(rawURL string) (*slackURLInfo, error) {
 	u, err := url.Parse(rawURL)
@@ -545,11 +568,144 @@ func isSlackHostedURL(rawURL string) bool {
 		return false
 	}
 
+	scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
+	if scheme != "https" {
+		return false
+	}
+
 	host := strings.ToLower(strings.TrimSpace(u.Hostname()))
 	if host == "" {
 		return false
 	}
 	return host == "slack.com" || strings.HasSuffix(host, ".slack.com")
+}
+
+func contentMediaType(contentType string) string {
+	return strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+}
+
+func decodeInlineImageAsRGBA(imageData []byte) ([]byte, int, int, error) {
+	img, _, err := image.Decode(bytes.NewReader(imageData))
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	if width <= 0 || height <= 0 {
+		return nil, 0, 0, fmt.Errorf("image has invalid dimensions")
+	}
+
+	decodedSize := int64(width) * int64(height) * 4
+	if decodedSize <= 0 || decodedSize > maxInlineRGBABytes {
+		return nil, 0, 0, fmt.Errorf("decoded image exceeds limit (%d bytes)", maxInlineRGBABytes)
+	}
+
+	rgba := image.NewRGBA(image.Rect(0, 0, width, height))
+	draw.Draw(rgba, rgba.Bounds(), img, bounds.Min, draw.Src)
+
+	return rgba.Pix, width, height, nil
+}
+
+func imageDimensions(imageData []byte) (int, int, error) {
+	config, _, err := image.DecodeConfig(bytes.NewReader(imageData))
+	if err != nil {
+		return 0, 0, err
+	}
+
+	if config.Width <= 0 || config.Height <= 0 {
+		return 0, 0, fmt.Errorf("image has invalid dimensions")
+	}
+
+	return config.Width, config.Height, nil
+}
+
+func buildInlineImagePayload(imageData []byte, contentType string) (*inlineImagePayload, error) {
+	if len(imageData) == 0 {
+		return nil, fmt.Errorf("image download was empty")
+	}
+
+	mediaType := contentMediaType(contentType)
+	if mediaType == "" {
+		mediaType = contentMediaType(http.DetectContentType(imageData))
+	}
+
+	if mediaType != "" && !strings.HasPrefix(mediaType, "image/") {
+		return nil, fmt.Errorf("not an image content type: %s", mediaType)
+	}
+
+	if mediaType == "image/png" {
+		width, height, _ := imageDimensions(imageData)
+		return &inlineImagePayload{
+			format: kittyImageFormatPNG,
+			width:  width,
+			height: height,
+			data:   imageData,
+		}, nil
+	}
+
+	rgbaData, width, height, err := decodeInlineImageAsRGBA(imageData)
+	if err != nil {
+		if mediaType != "" {
+			return nil, fmt.Errorf("unsupported inline image format %q: %w", mediaType, err)
+		}
+		return nil, fmt.Errorf("unsupported inline image format: %w", err)
+	}
+
+	return &inlineImagePayload{
+		format: kittyImageFormatRaw,
+		width:  width,
+		height: height,
+		data:   rgbaData,
+	}, nil
+}
+
+func inlineImageColumnsForTerminalWidth(width int) int {
+	if width <= 0 {
+		return defaultInlineImageCols
+	}
+
+	cols := width / 3
+	if cols < minInlineImageCols {
+		cols = minInlineImageCols
+	}
+	if cols > maxInlineImageCols {
+		cols = maxInlineImageCols
+	}
+
+	return cols
+}
+
+func inlineImageRowsForPayload(payload *inlineImagePayload, cols int) int {
+	if payload == nil || payload.width <= 0 || payload.height <= 0 || cols <= 0 {
+		return 0
+	}
+
+	rows := int(math.Round(float64(payload.height) * float64(cols) / (float64(payload.width) * 2.0)))
+	if rows < 1 {
+		rows = 1
+	}
+	if rows > maxInlineImageRows {
+		rows = maxInlineImageRows
+	}
+
+	return rows
+}
+
+func firstInlineImageChunkParams(payload *inlineImagePayload, cols, rows, hasMore int) string {
+	if payload.format == kittyImageFormatRaw {
+		if rows > 0 {
+			return fmt.Sprintf("a=T,f=%d,s=%d,v=%d,c=%d,r=%d,m=%d", payload.format, payload.width, payload.height, cols, rows, hasMore)
+		}
+		return fmt.Sprintf("a=T,f=%d,s=%d,v=%d,c=%d,m=%d", payload.format, payload.width, payload.height, cols, hasMore)
+	}
+
+	if rows > 0 {
+		return fmt.Sprintf("a=T,f=%d,c=%d,r=%d,m=%d", payload.format, cols, rows, hasMore)
+	}
+
+	return fmt.Sprintf("a=T,f=%d,c=%d,m=%d", payload.format, cols, hasMore)
 }
 
 func (c *ViewCmd) renderInlineImage(client *slack.Client, imageURL string) error {
@@ -558,28 +714,18 @@ func (c *ViewCmd) renderInlineImage(client *slack.Client, imageURL string) error
 		return err
 	}
 
-	if strings.TrimSpace(contentType) != "" {
-		mediaType := strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
-		if mediaType != "" && !strings.HasPrefix(mediaType, "image/") {
-			return fmt.Errorf("not an image content type: %s", mediaType)
-		}
+	payload, err := buildInlineImagePayload(imageData, contentType)
+	if err != nil {
+		return err
 	}
 
-	if len(imageData) == 0 {
-		return fmt.Errorf("image download was empty")
-	}
-	cols := 80
+	cols := inlineImageColumnsForTerminalWidth(0)
 	if width, _, sizeErr := term.GetSize(int(os.Stdout.Fd())); sizeErr == nil && width > 0 {
-		cols = width - 4
-		if cols > 120 {
-			cols = 120
-		}
-		if cols < 20 {
-			cols = 20
-		}
+		cols = inlineImageColumnsForTerminalWidth(width)
 	}
+	rows := inlineImageRowsForPayload(payload, cols)
 
-	encoded := base64.StdEncoding.EncodeToString(imageData)
+	encoded := base64.StdEncoding.EncodeToString(payload.data)
 	firstChunk := true
 
 	for len(encoded) > 0 {
@@ -597,7 +743,7 @@ func (c *ViewCmd) renderInlineImage(client *slack.Client, imageURL string) error
 
 		var params string
 		if firstChunk {
-			params = fmt.Sprintf("a=T,f=100,c=%d,m=%d", cols, hasMore)
+			params = firstInlineImageChunkParams(payload, cols, rows, hasMore)
 			firstChunk = false
 		} else {
 			params = fmt.Sprintf("m=%d", hasMore)

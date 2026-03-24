@@ -1,6 +1,14 @@
 package cmd
 
 import (
+	"bytes"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -169,4 +177,157 @@ func TestMessageInlineImageURLs(t *testing.T) {
 			t.Fatalf("messageInlineImageURLs()[%d] = %q, want %q", i, got[i], want[i])
 		}
 	}
+}
+
+func TestMessageInlineImageURLs_RequiresHTTPS(t *testing.T) {
+	cmd := &ViewCmd{Raw: true}
+
+	got := cmd.messageInlineImageURLs(slack.Message{
+		Attachments: []slack.Attachment{
+			{ImageURL: "http://files.slack.com/files-pri/T123/F123/plain-http-attachment.png"},
+			{ImageURL: "https://files.slack.com/files-pri/T123/F124/https-attachment.png"},
+		},
+		Blocks: []slack.Block{
+			{Type: "image", ImageURL: "http://files.slack.com/files-pri/T123/F125/plain-http-block.png"},
+			{Type: "image", ImageURL: "https://files.slack.com/files-pri/T123/F126/https-block.png"},
+		},
+	})
+
+	want := []string{
+		"https://files.slack.com/files-pri/T123/F124/https-attachment.png",
+		"https://files.slack.com/files-pri/T123/F126/https-block.png",
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("messageInlineImageURLs() len = %d, want %d (%v)", len(got), len(want), got)
+	}
+
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("messageInlineImageURLs()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestRenderInlineImage_UsesRGBAFormatForJPEG(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	img.Set(0, 0, color.RGBA{R: 255, G: 0, B: 0, A: 255})
+
+	var imageBuf bytes.Buffer
+	if err := jpeg.Encode(&imageBuf, img, nil); err != nil {
+		t.Fatalf("jpeg.Encode() returned error: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write(imageBuf.Bytes())
+	}))
+	defer server.Close()
+
+	readPipe, writePipe, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() returned error: %v", err)
+	}
+	defer readPipe.Close() //nolint:errcheck
+
+	oldStdout := os.Stdout
+	os.Stdout = writePipe
+	t.Cleanup(func() {
+		os.Stdout = oldStdout
+	})
+
+	cmd := &ViewCmd{Raw: true}
+	client := slack.NewClient("[REDACTED:slack-access-token]")
+
+	renderErr := cmd.renderInlineImage(client, server.URL)
+	_ = writePipe.Close()
+	outputBytes, readErr := io.ReadAll(readPipe)
+
+	if renderErr != nil {
+		t.Fatalf("renderInlineImage() returned error: %v", renderErr)
+	}
+	if readErr != nil {
+		t.Fatalf("io.ReadAll() returned error: %v", readErr)
+	}
+
+	output := string(outputBytes)
+	if !strings.Contains(output, "a=T,f=32,s=1,v=1") {
+		t.Fatalf("renderInlineImage() output missing raw RGBA image metadata: %q", output)
+	}
+	if strings.Contains(output, "a=T,f=100") {
+		t.Fatalf("renderInlineImage() output should not mark JPEG data as PNG: %q", output)
+	}
+}
+
+func TestInlineImageColumnsForTerminalWidth(t *testing.T) {
+	tests := []struct {
+		name  string
+		width int
+		want  int
+	}{
+		{name: "unknown width uses default", width: 0, want: 32},
+		{name: "small width uses minimum", width: 40, want: 20},
+		{name: "medium width scales to one third", width: 120, want: 40},
+		{name: "very large width is capped", width: 300, want: 48},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := inlineImageColumnsForTerminalWidth(tt.width)
+			if got != tt.want {
+				t.Fatalf("inlineImageColumnsForTerminalWidth(%d) = %d, want %d", tt.width, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestInlineImageRowsForPayload(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload inlineImagePayload
+		cols    int
+		want    int
+	}{
+		{name: "unknown dimensions disables row constraint", payload: inlineImagePayload{}, cols: 40, want: 0},
+		{name: "landscape image", payload: inlineImagePayload{width: 1600, height: 900}, cols: 48, want: 14},
+		{name: "portrait image is capped", payload: inlineImagePayload{width: 900, height: 1600}, cols: 48, want: 24},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := inlineImageRowsForPayload(&tt.payload, tt.cols)
+			if got != tt.want {
+				t.Fatalf("inlineImageRowsForPayload(%+v, %d) = %d, want %d", tt.payload, tt.cols, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFirstInlineImageChunkParams(t *testing.T) {
+	t.Run("raw payload includes dimensions and row constraint", func(t *testing.T) {
+		payload := &inlineImagePayload{format: kittyImageFormatRaw, width: 640, height: 480}
+		got := firstInlineImageChunkParams(payload, 48, 18, 1)
+		want := "a=T,f=32,s=640,v=480,c=48,r=18,m=1"
+		if got != want {
+			t.Fatalf("firstInlineImageChunkParams() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("png payload includes row constraint", func(t *testing.T) {
+		payload := &inlineImagePayload{format: kittyImageFormatPNG, width: 1200, height: 800}
+		got := firstInlineImageChunkParams(payload, 40, 12, 0)
+		want := "a=T,f=100,c=40,r=12,m=0"
+		if got != want {
+			t.Fatalf("firstInlineImageChunkParams() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("unknown row omits row constraint", func(t *testing.T) {
+		payload := &inlineImagePayload{format: kittyImageFormatPNG}
+		got := firstInlineImageChunkParams(payload, 32, 0, 0)
+		want := "a=T,f=100,c=32,m=0"
+		if got != want {
+			t.Fatalf("firstInlineImageChunkParams() = %q, want %q", got, want)
+		}
+	})
 }

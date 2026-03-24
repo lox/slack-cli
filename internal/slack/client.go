@@ -107,6 +107,11 @@ func isSlackHostedURL(rawURL string) bool {
 		return false
 	}
 
+	scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
+	if scheme != "https" {
+		return false
+	}
+
 	host := strings.ToLower(strings.TrimSpace(u.Hostname()))
 	if host == "" {
 		return false

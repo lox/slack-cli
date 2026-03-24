@@ -1,6 +1,7 @@
 package slack
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -43,6 +44,7 @@ func TestIsSlackHostedURL(t *testing.T) {
 	}{
 		{name: "slack root", url: "https://slack.com/file.png", want: true},
 		{name: "slack subdomain", url: "https://files.slack.com/file.png", want: true},
+		{name: "http slack subdomain", url: "http://files.slack.com/file.png", want: false},
 		{name: "uppercase host", url: "https://FILES.SLACK.COM/file.png", want: true},
 		{name: "external host", url: "https://example.com/file.png", want: false},
 		{name: "empty", url: "", want: false},
@@ -103,4 +105,53 @@ func TestDownloadPrivateFile(t *testing.T) {
 			t.Fatalf("DownloadPrivateFile error = %q, want contains %q", err.Error(), "maxBytes must be > 0")
 		}
 	})
+}
+
+func TestDownloadPrivateFile_AuthorizationHeaderPolicy(t *testing.T) {
+	tests := []struct {
+		name     string
+		fileURL  string
+		wantAuth string
+	}{
+		{name: "https slack host sends token", fileURL: "https://files.slack.com/files-pri/T123/F123/file.png", wantAuth: "Bearer [REDACTED:slack-access-token]"},
+		{name: "http slack host does not send token", fileURL: "http://files.slack.com/files-pri/T123/F123/file.png", wantAuth: ""},
+		{name: "https external host does not send token", fileURL: "https://example.com/file.png", wantAuth: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotAuth string
+
+			client := &Client{
+				userToken: "[REDACTED:slack-access-token]",
+				httpClient: &http.Client{
+					Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+						gotAuth = req.Header.Get("Authorization")
+						return &http.Response{
+							StatusCode: http.StatusOK,
+							Status:     "200 OK",
+							Header:     http.Header{"Content-Type": []string{"image/png"}},
+							Body:       io.NopCloser(strings.NewReader("ok")),
+							Request:    req,
+						}, nil
+					}),
+				},
+			}
+
+			_, _, err := client.DownloadPrivateFile(tt.fileURL, 2)
+			if err != nil {
+				t.Fatalf("DownloadPrivateFile() returned error: %v", err)
+			}
+
+			if gotAuth != tt.wantAuth {
+				t.Fatalf("DownloadPrivateFile() authorization header = %q, want %q", gotAuth, tt.wantAuth)
+			}
+		})
+	}
+}
+
+type roundTripFunc func(req *http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
