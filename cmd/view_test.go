@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -330,4 +331,33 @@ func TestFirstInlineImageChunkParams(t *testing.T) {
 			t.Fatalf("firstInlineImageChunkParams() = %q, want %q", got, want)
 		}
 	})
+}
+
+func TestBuildInlineImagePayload_RejectsOversizedDimensionsBeforeDecode(t *testing.T) {
+	const fakeMagic = "FAKEIMG!"
+	const decodeCalledMessage = "decode should not be called"
+
+	image.RegisterFormat(
+		"oversized-fake-inline-image",
+		fakeMagic,
+		func(io.Reader) (image.Image, error) {
+			return nil, errors.New(decodeCalledMessage)
+		},
+		func(io.Reader) (image.Config, error) {
+			return image.Config{Width: 20000, Height: 20000}, nil
+		},
+	)
+
+	_, err := buildInlineImagePayload([]byte(fakeMagic+"payload"), "image/fake")
+	if err == nil {
+		t.Fatalf("buildInlineImagePayload() expected error for oversized dimensions")
+	}
+
+	if !strings.Contains(err.Error(), "decoded image exceeds limit") {
+		t.Fatalf("buildInlineImagePayload() error = %q, want contains %q", err.Error(), "decoded image exceeds limit")
+	}
+
+	if strings.Contains(err.Error(), decodeCalledMessage) {
+		t.Fatalf("buildInlineImagePayload() unexpectedly decoded full image before applying size guard: %q", err.Error())
+	}
 }

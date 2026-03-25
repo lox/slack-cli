@@ -584,28 +584,44 @@ func contentMediaType(contentType string) string {
 	return strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
 }
 
+func validateInlineImageDimensions(width, height int) error {
+	if width <= 0 || height <= 0 {
+		return fmt.Errorf("image has invalid dimensions")
+	}
+
+	decodedSize := int64(width) * int64(height) * 4
+	if decodedSize <= 0 || decodedSize > maxInlineRGBABytes {
+		return fmt.Errorf("decoded image exceeds limit (%d bytes)", maxInlineRGBABytes)
+	}
+
+	return nil
+}
+
 func decodeInlineImageAsRGBA(imageData []byte) ([]byte, int, int, error) {
+	width, height, err := imageDimensions(imageData)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	if err := validateInlineImageDimensions(width, height); err != nil {
+		return nil, 0, 0, err
+	}
+
 	img, _, err := image.Decode(bytes.NewReader(imageData))
 	if err != nil {
 		return nil, 0, 0, err
 	}
 
 	bounds := img.Bounds()
-	width := bounds.Dx()
-	height := bounds.Dy()
-	if width <= 0 || height <= 0 {
-		return nil, 0, 0, fmt.Errorf("image has invalid dimensions")
+	decodedWidth := bounds.Dx()
+	decodedHeight := bounds.Dy()
+	if err := validateInlineImageDimensions(decodedWidth, decodedHeight); err != nil {
+		return nil, 0, 0, err
 	}
 
-	decodedSize := int64(width) * int64(height) * 4
-	if decodedSize <= 0 || decodedSize > maxInlineRGBABytes {
-		return nil, 0, 0, fmt.Errorf("decoded image exceeds limit (%d bytes)", maxInlineRGBABytes)
-	}
-
-	rgba := image.NewRGBA(image.Rect(0, 0, width, height))
+	rgba := image.NewRGBA(image.Rect(0, 0, decodedWidth, decodedHeight))
 	draw.Draw(rgba, rgba.Bounds(), img, bounds.Min, draw.Src)
 
-	return rgba.Pix, width, height, nil
+	return rgba.Pix, decodedWidth, decodedHeight, nil
 }
 
 func imageDimensions(imageData []byte) (int, int, error) {
