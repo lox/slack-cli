@@ -11,15 +11,26 @@ go build -ldflags "-X main.version=$VERSION" -o slack-cli .
 """
 
 [tasks.install]
-description = "Build and install to ~/bin"
+description = "Build and install to GOBIN (or GOPATH/bin)"
 run = """
 VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
-go build -ldflags "-X main.version=$VERSION" -o ~/bin/slack-cli .
+BIN_DIR=$(go env GOBIN)
+if [ -z "$BIN_DIR" ]; then
+  BIN_DIR="$(go env GOPATH)/bin"
+fi
+mkdir -p "$BIN_DIR"
+go build -ldflags "-X main.version=$VERSION" -o "$BIN_DIR/slack-cli" .
+echo "Installed to $BIN_DIR/slack-cli"
 """
 
 [tasks."install:global"]
-description = "Build and install globally to ~/bin"
-depends = ["install"]
+description = "Build and install to ~/bin"
+run = """
+VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+mkdir -p "$HOME/bin"
+go build -ldflags "-X main.version=$VERSION" -o "$HOME/bin/slack-cli" .
+echo "Installed to $HOME/bin/slack-cli"
+"""
 
 [tasks.test]
 description = "Run tests"
