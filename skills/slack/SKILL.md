@@ -31,7 +31,6 @@ slack-cli channel info        # Show channel information by name, ID, or URL
 slack-cli thread read         # Read a thread by URL or channel+timestamp (supports --markdown)
 slack-cli user list           # List users in the workspace
 slack-cli user info           # Show user information
-slack-cli auth config         # Configure Slack app credentials
 slack-cli auth login          # Authenticate with Slack via OAuth
 slack-cli auth status         # Show authentication status
 ```

@@ -1,10 +1,57 @@
 package cmd
 
 import (
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lox/slack-cli/internal/config"
 )
+
+func loadTempConfig(t *testing.T) *config.Config {
+	t.Helper()
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load returned error: %v", err)
+	}
+
+	return cfg
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	originalStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe returned error: %v", err)
+	}
+
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = originalStdout
+	}()
+
+	fn()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer.Close returned error: %v", err)
+	}
+
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("io.ReadAll returned error: %v", err)
+	}
+
+	return string(output)
+}
 
 func TestResolveWorkspaceForLogout(t *testing.T) {
 	cfg := &config.Config{
@@ -169,7 +216,7 @@ func TestGetOAuthCredentials(t *testing.T) {
 		t.Setenv("SLACK_CLIENT_SECRET", "env-secret")
 
 		cfg := &config.Config{ClientID: "global-id", ClientSecret: "global-secret"}
- 
+
 		id, secret, workspace, found, err := getOAuthCredentials(cfg, "missing.slack.com", "", "", true)
 		if err != nil {
 			t.Fatalf("getOAuthCredentials returned error: %v", err)
@@ -263,6 +310,189 @@ func TestResetAllAuth(t *testing.T) {
 	}
 	if cfg.ClientID != "" || cfg.ClientSecret != "" {
 		t.Fatalf("expected global client credentials to be cleared")
+	}
+}
+
+func TestAuthLogoutRunPreservesStoredOAuthCredentials(t *testing.T) {
+	cfg := loadTempConfig(t)
+	cfg.CurrentWorkspace = "buildkite.slack.com"
+	cfg.Token = "xoxp-buildkite"
+	cfg.Workspaces = map[string]config.WorkspaceAuth{
+		"buildkite.slack.com": {
+			Token:        "xoxp-buildkite",
+			ClientID:     "client-id",
+			ClientSecret: "client-secret",
+			Team:         "Buildkite",
+			TeamID:       "TBUILD",
+			URL:          "https://buildkite.slack.com/",
+		},
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save returned error: %v", err)
+	}
+
+	if err := (&AuthLogoutCmd{}).Run(&Context{Config: cfg}); err != nil {
+		t.Fatalf("AuthLogoutCmd.Run returned error: %v", err)
+	}
+
+	reloaded, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load returned error: %v", err)
+	}
+
+	auth, ok := reloaded.Workspaces["buildkite.slack.com"]
+	if !ok {
+		t.Fatalf("expected logged out workspace to be preserved")
+	}
+	if auth.Token != "" {
+		t.Fatalf("expected workspace token to be cleared, got %q", auth.Token)
+	}
+	if auth.ClientID != "client-id" || auth.ClientSecret != "client-secret" {
+		t.Fatalf("expected stored OAuth credentials to remain, got %q/%q", auth.ClientID, auth.ClientSecret)
+	}
+	if reloaded.CurrentWorkspace != "buildkite.slack.com" {
+		t.Fatalf("expected current workspace to remain buildkite.slack.com, got %q", reloaded.CurrentWorkspace)
+	}
+	if reloaded.Token != "" {
+		t.Fatalf("expected mirrored legacy token to be cleared, got %q", reloaded.Token)
+	}
+
+	id, secret, workspace, found, err := getOAuthCredentials(reloaded, "", "", "", true)
+	if err != nil {
+		t.Fatalf("getOAuthCredentials returned error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected saved credentials to be reusable after logout")
+	}
+	if id != "client-id" || secret != "client-secret" {
+		t.Fatalf("expected saved credentials, got %q/%q", id, secret)
+	}
+	if workspace != "buildkite.slack.com" {
+		t.Fatalf("expected current workspace credentials to resolve to buildkite.slack.com, got %q", workspace)
+	}
+}
+
+func TestAuthLogoutRunPromotesAnotherLoggedInWorkspace(t *testing.T) {
+	cfg := loadTempConfig(t)
+	cfg.CurrentWorkspace = "buildkite.slack.com"
+	cfg.Token = "xoxp-buildkite"
+	cfg.Workspaces = map[string]config.WorkspaceAuth{
+		"buildkite.slack.com": {
+			Token:        "xoxp-buildkite",
+			ClientID:     "buildkite-id",
+			ClientSecret: "buildkite-secret",
+			TeamID:       "TBUILD",
+		},
+		"corp.slack.com": {
+			Token:        "xoxp-corp",
+			ClientID:     "corp-id",
+			ClientSecret: "corp-secret",
+			TeamID:       "TCORP",
+		},
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save returned error: %v", err)
+	}
+
+	if err := (&AuthLogoutCmd{}).Run(&Context{Config: cfg}); err != nil {
+		t.Fatalf("AuthLogoutCmd.Run returned error: %v", err)
+	}
+
+	reloaded, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load returned error: %v", err)
+	}
+
+	if reloaded.CurrentWorkspace != "corp.slack.com" {
+		t.Fatalf("expected current workspace to switch to corp.slack.com, got %q", reloaded.CurrentWorkspace)
+	}
+	if reloaded.Token != "xoxp-corp" {
+		t.Fatalf("expected mirrored legacy token xoxp-corp, got %q", reloaded.Token)
+	}
+
+	buildkite := reloaded.Workspaces["buildkite.slack.com"]
+	if buildkite.Token != "" {
+		t.Fatalf("expected logged out workspace token to be cleared, got %q", buildkite.Token)
+	}
+	if buildkite.ClientID != "buildkite-id" || buildkite.ClientSecret != "buildkite-secret" {
+		t.Fatalf("expected logged out workspace credentials to be preserved, got %q/%q", buildkite.ClientID, buildkite.ClientSecret)
+	}
+}
+
+func TestAuthStatusRunShowsConfiguredLoggedOutWorkspaces(t *testing.T) {
+	ctx := &Context{
+		Config: &config.Config{
+			CurrentWorkspace: "buildkite.slack.com",
+			Workspaces: map[string]config.WorkspaceAuth{
+				"buildkite.slack.com": {
+					ClientID:     "support-id",
+					ClientSecret: "support-secret",
+					URL:          "https://buildkite.slack.com/",
+				},
+				"buildkite-corp.slack.com": {
+					ClientID:     "corp-id",
+					ClientSecret: "corp-secret",
+					URL:          "https://buildkite-corp.slack.com/",
+				},
+			},
+		},
+	}
+
+	output := captureStdout(t, func() {
+		if err := (&AuthStatusCmd{}).Run(ctx); err != nil {
+			t.Fatalf("AuthStatusCmd.Run returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Not logged in. Run 'slack-cli auth login' to authenticate.") {
+		t.Fatalf("expected not logged in message, got %q", output)
+	}
+	if !strings.Contains(output, "Configured workspaces:") {
+		t.Fatalf("expected configured workspaces list, got %q", output)
+	}
+	if !strings.Contains(output, "https://buildkite.slack.com/ (default, logged out)") {
+		t.Fatalf("expected default logged-out workspace entry, got %q", output)
+	}
+	if !strings.Contains(output, "https://buildkite-corp.slack.com/ (logged out)") {
+		t.Fatalf("expected non-default logged-out workspace entry, got %q", output)
+	}
+}
+
+func TestAuthStatusRunShowsRequestedConfiguredWorkspaceWithoutToken(t *testing.T) {
+	ctx := &Context{
+		Workspace: "buildkite",
+		Config: &config.Config{
+			CurrentWorkspace: "buildkite-corp.slack.com",
+			Workspaces: map[string]config.WorkspaceAuth{
+				"buildkite.slack.com": {
+					ClientID:     "support-id",
+					ClientSecret: "support-secret",
+					URL:          "https://buildkite.slack.com/",
+				},
+				"buildkite-corp.slack.com": {
+					Token:        "xoxp-corp",
+					ClientID:     "corp-id",
+					ClientSecret: "corp-secret",
+					URL:          "https://buildkite-corp.slack.com/",
+				},
+			},
+		},
+	}
+
+	output := captureStdout(t, func() {
+		if err := (&AuthStatusCmd{}).Run(ctx); err != nil {
+			t.Fatalf("AuthStatusCmd.Run returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Workspace https://buildkite.slack.com/ is configured but not logged in.") {
+		t.Fatalf("expected configured but not logged in message, got %q", output)
+	}
+	if !strings.Contains(output, "slack-cli --workspace buildkite.slack.com auth login") {
+		t.Fatalf("expected workspace-specific login hint, got %q", output)
+	}
+	if !strings.Contains(output, "https://buildkite.slack.com/ (logged out)") {
+		t.Fatalf("expected logged-out workspace entry, got %q", output)
 	}
 }
 

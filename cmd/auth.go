@@ -510,6 +510,80 @@ type AuthLogoutCmd struct {
 	All bool `help:"Log out of all configured workspaces and clear saved OAuth app credentials"`
 }
 
+func workspaceHasReusableAuthState(auth config.WorkspaceAuth) bool {
+	return strings.TrimSpace(auth.ClientID) != "" ||
+		strings.TrimSpace(auth.ClientSecret) != "" ||
+		strings.TrimSpace(auth.Team) != "" ||
+		strings.TrimSpace(auth.TeamID) != "" ||
+		strings.TrimSpace(auth.URL) != ""
+}
+
+func clearWorkspaceLogin(cfg *config.Config, workspace string) {
+	if cfg == nil {
+		return
+	}
+
+	workspace = strings.ToLower(strings.TrimSpace(workspace))
+	if workspace == "" {
+		return
+	}
+
+	auth, ok := cfg.Workspaces[workspace]
+	if !ok {
+		return
+	}
+
+	auth.Token = ""
+	if workspaceHasReusableAuthState(auth) {
+		cfg.Workspaces[workspace] = auth
+		return
+	}
+
+	delete(cfg.Workspaces, workspace)
+}
+
+func syncCurrentWorkspaceAfterLogout(cfg *config.Config, loggedOutWorkspace string) {
+	if cfg == nil {
+		return
+	}
+
+	loggedOutWorkspace = strings.ToLower(strings.TrimSpace(loggedOutWorkspace))
+	currentWorkspace := strings.ToLower(strings.TrimSpace(cfg.CurrentWorkspace))
+	if currentWorkspace == "" {
+		cfg.Token = ""
+		return
+	}
+
+	if currentWorkspace == loggedOutWorkspace {
+		loggedInWorkspaces := make([]string, 0, len(cfg.Workspaces))
+		for key, auth := range cfg.Workspaces {
+			if strings.TrimSpace(auth.Token) == "" {
+				continue
+			}
+			loggedInWorkspaces = append(loggedInWorkspaces, key)
+		}
+
+		sort.Strings(loggedInWorkspaces)
+		switch {
+		case len(loggedInWorkspaces) > 0:
+			cfg.CurrentWorkspace = loggedInWorkspaces[0]
+		case loggedOutWorkspace != "":
+			if _, ok := cfg.Workspaces[loggedOutWorkspace]; ok {
+				cfg.CurrentWorkspace = loggedOutWorkspace
+			} else {
+				cfg.CurrentWorkspace = ""
+			}
+		default:
+			cfg.CurrentWorkspace = ""
+		}
+	}
+
+	cfg.Token = ""
+	if auth, ok := cfg.Workspaces[cfg.CurrentWorkspace]; ok {
+		cfg.Token = auth.Token
+	}
+}
+
 func resolveWorkspaceForLogout(cfg *config.Config, requestedWorkspace string) (string, error) {
 	workspace := strings.TrimSpace(requestedWorkspace)
 	if workspace == "" {
@@ -545,23 +619,10 @@ func (c *AuthLogoutCmd) Run(ctx *Context) error {
 	}
 
 	if workspace != "" {
-		delete(ctx.Config.Workspaces, strings.ToLower(workspace))
-		if ctx.Config.CurrentWorkspace == strings.ToLower(workspace) {
-			ctx.Config.CurrentWorkspace = ""
-			if len(ctx.Config.Workspaces) > 0 {
-				keys := make([]string, 0, len(ctx.Config.Workspaces))
-				for k := range ctx.Config.Workspaces {
-					keys = append(keys, k)
-				}
-				sort.Strings(keys)
-				ctx.Config.CurrentWorkspace = keys[0]
-			}
-		}
-	}
-
-	ctx.Config.Token = ""
-	if ctx.Config.CurrentWorkspace != "" {
-		ctx.Config.Token = ctx.Config.Workspaces[ctx.Config.CurrentWorkspace].Token
+		clearWorkspaceLogin(ctx.Config, workspace)
+		syncCurrentWorkspaceAfterLogout(ctx.Config, workspace)
+	} else {
+		ctx.Config.Token = ""
 	}
 
 	if err := ctx.Config.Save(); err != nil {
@@ -594,11 +655,63 @@ func workspaceURLForDisplay(workspaceKey string, auth config.WorkspaceAuth, fall
 	return workspaceKey
 }
 
+func printConfiguredWorkspaces(cfg *config.Config, currentResolvedWorkspace, currentFallbackURL string) {
+	if cfg == nil || len(cfg.Workspaces) == 0 {
+		return
+	}
+
+	keys := make([]string, 0, len(cfg.Workspaces))
+	for k := range cfg.Workspaces {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	fmt.Println("Configured workspaces:")
+	for _, key := range keys {
+		auth := cfg.Workspaces[key]
+		fallbackURL := ""
+		if key == currentResolvedWorkspace {
+			fallbackURL = currentFallbackURL
+		}
+
+		display := workspaceURLForDisplay(key, auth, fallbackURL)
+		details := make([]string, 0, 2)
+		if key == cfg.CurrentWorkspace {
+			details = append(details, "default")
+		}
+		if strings.TrimSpace(auth.Token) == "" {
+			details = append(details, "logged out")
+		}
+
+		if len(details) == 0 {
+			fmt.Printf("- %s\n", display)
+			continue
+		}
+
+		fmt.Printf("- %s (%s)\n", display, strings.Join(details, ", "))
+	}
+}
+
 func (c *AuthStatusCmd) Run(ctx *Context) error {
 	requestedWorkspace := strings.TrimSpace(ctx.Workspace)
 	token, resolvedWorkspace, err := ctx.Config.TokenForWorkspace(requestedWorkspace)
 	if err != nil {
+		if requestedWorkspace != "" {
+			if configuredWorkspace, resolveErr := ctx.Config.ResolveWorkspace(requestedWorkspace); resolveErr == nil {
+				auth := ctx.Config.Workspaces[configuredWorkspace]
+				display := workspaceURLForDisplay(configuredWorkspace, auth, "")
+				fmt.Printf(
+					"Workspace %s is configured but not logged in. Run 'slack-cli --workspace %s auth login' to authenticate.\n",
+					display,
+					configuredWorkspace,
+				)
+				printConfiguredWorkspaces(ctx.Config, "", "")
+				return nil
+			}
+		}
+
 		fmt.Println("Not logged in. Run 'slack-cli auth login' to authenticate.")
+		printConfiguredWorkspaces(ctx.Config, "", "")
 		return nil
 	}
 
@@ -615,28 +728,7 @@ func (c *AuthStatusCmd) Run(ctx *Context) error {
 	}
 
 	fmt.Printf("Logged in as %s in workspace %s (%s)\n", user.User, user.Team, resolvedDisplay)
-
-	if len(ctx.Config.Workspaces) > 1 {
-		keys := make([]string, 0, len(ctx.Config.Workspaces))
-		for k := range ctx.Config.Workspaces {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		fmt.Println("Configured workspaces:")
-		for _, key := range keys {
-			auth := ctx.Config.Workspaces[key]
-			fallbackURL := ""
-			if key == resolvedWorkspace {
-				fallbackURL = user.URL
-			}
-			display := workspaceURLForDisplay(key, auth, fallbackURL)
-			current := ""
-			if key == ctx.Config.CurrentWorkspace {
-				current = " (default)"
-			}
-			fmt.Printf("- %s%s\n", display, current)
-		}
-	}
+	printConfiguredWorkspaces(ctx.Config, resolvedWorkspace, user.URL)
 
 	return nil
 }
