@@ -361,3 +361,27 @@ func TestBuildInlineImagePayload_RejectsOversizedDimensionsBeforeDecode(t *testi
 		t.Fatalf("buildInlineImagePayload() unexpectedly decoded full image before applying size guard: %q", err.Error())
 	}
 }
+
+func TestBuildInlineImagePayload_PNGRejectsOversizedDimensions(t *testing.T) {
+	const fakeMagic = "FAKEPNG!"
+
+	image.RegisterFormat(
+		"oversized-fake-png-inline-image",
+		fakeMagic,
+		func(io.Reader) (image.Image, error) {
+			return nil, errors.New("decode should not be called")
+		},
+		func(io.Reader) (image.Config, error) {
+			return image.Config{Width: 20000, Height: 20000}, nil
+		},
+	)
+
+	_, err := buildInlineImagePayload([]byte(fakeMagic+"payload"), "image/png")
+	if err == nil {
+		t.Fatalf("buildInlineImagePayload() expected error for oversized PNG dimensions")
+	}
+
+	if !strings.Contains(err.Error(), "decoded image exceeds limit") {
+		t.Fatalf("buildInlineImagePayload() error = %q, want contains %q", err.Error(), "decoded image exceeds limit")
+	}
+}

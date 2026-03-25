@@ -652,7 +652,14 @@ func buildInlineImagePayload(imageData []byte, contentType string) (*inlineImage
 	}
 
 	if mediaType == "image/png" {
-		width, height, _ := imageDimensions(imageData)
+		width, height, err := imageDimensions(imageData)
+		if err != nil {
+			return nil, fmt.Errorf("unsupported inline image format %q: %w", mediaType, err)
+		}
+		if err := validateInlineImageDimensions(width, height); err != nil {
+			return nil, err
+		}
+
 		return &inlineImagePayload{
 			format: kittyImageFormatPNG,
 			width:  width,
