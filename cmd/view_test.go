@@ -385,3 +385,27 @@ func TestBuildInlineImagePayload_PNGRejectsOversizedDimensions(t *testing.T) {
 		t.Fatalf("buildInlineImagePayload() error = %q, want contains %q", err.Error(), "decoded image exceeds limit")
 	}
 }
+
+func TestIsImageFile_SupportedInlineFormats(t *testing.T) {
+	tests := []struct {
+		name string
+		file slack.File
+		want bool
+	}{
+		{name: "png by mimetype", file: slack.File{Mimetype: "image/png"}, want: true},
+		{name: "jpeg by filetype", file: slack.File{Filetype: "jpeg"}, want: true},
+		{name: "gif by filetype", file: slack.File{Filetype: "gif"}, want: true},
+		{name: "webp unsupported", file: slack.File{Filetype: "webp"}, want: false},
+		{name: "bmp unsupported", file: slack.File{Filetype: "bmp"}, want: false},
+		{name: "svg unsupported", file: slack.File{Filetype: "svg"}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isImageFile(tt.file)
+			if got != tt.want {
+				t.Fatalf("isImageFile(%+v) = %v, want %v", tt.file, got, tt.want)
+			}
+		})
+	}
+}

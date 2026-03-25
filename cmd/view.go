@@ -555,7 +555,7 @@ func isImageFile(file slack.File) bool {
 	}
 
 	switch strings.ToLower(strings.TrimSpace(file.Filetype)) {
-	case "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg":
+	case "png", "jpg", "jpeg", "gif":
 		return true
 	default:
 		return false
