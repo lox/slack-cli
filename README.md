@@ -13,7 +13,7 @@ brew install --cask lox/tap/slack-cli
 ### mise
 
 ```bash
-mise use -g ubi:lox/slack-cli
+mise use -g github:lox/slack-cli
 ```
 
 This installs the latest release globally and puts `slack-cli` on your PATH via mise shims.
