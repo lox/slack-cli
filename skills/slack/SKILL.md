@@ -13,7 +13,7 @@ A CLI for reading Slack content - messages, threads, channels, and users.
 If `slack-cli` is not on PATH, install it:
 
 ```bash
-brew install lox/tap/slack-cli
+brew install --cask lox/tap/slack-cli
 ```
 
 Or: `go install github.com/lox/slack-cli@latest`

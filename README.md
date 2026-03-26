@@ -7,8 +7,16 @@ A CLI for Slack - search, read channels/threads, and browse users from the comma
 ### Homebrew
 
 ```bash
-brew install lox/tap/slack-cli
+brew install --cask lox/tap/slack-cli
 ```
+
+### mise
+
+```bash
+mise use -g ubi:lox/slack-cli
+```
+
+This installs the latest release globally and puts `slack-cli` on your PATH via mise shims.
 
 ### Go
 
