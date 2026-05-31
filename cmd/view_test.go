@@ -28,6 +28,29 @@ func TestFormatMessageBody_TextOnly(t *testing.T) {
 	}
 }
 
+func TestFormatMessageBody_UsesLongerSectionBlockText(t *testing.T) {
+	cmd := &ViewCmd{Raw: true}
+
+	got := cmd.formatMessageBody(slack.Message{
+		Text: "LongMessage.Part",
+		Blocks: []slack.Block{
+			{
+				Type: "section",
+				Text: &slack.BlockText{Type: "mrkdwn", Text: "LongMessage.Part"},
+			},
+			{
+				Type: "section",
+				Text: &slack.BlockText{Type: "mrkdwn", Text: "Two + ordering"},
+			},
+		},
+	})
+
+	want := "LongMessage.PartTwo + ordering"
+	if got != want {
+		t.Fatalf("formatMessageBody() = %q, want %q", got, want)
+	}
+}
+
 func TestNormalizeInlineImagesMode(t *testing.T) {
 	tests := []struct {
 		name    string

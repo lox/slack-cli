@@ -256,7 +256,7 @@ func (c *ViewCmd) buildChannelMarkdown(sb *strings.Builder, client *slack.Client
 func (c *ViewCmd) formatMessageBody(msg slack.Message) string {
 	parts := make([]string, 0, 2)
 
-	text := strings.TrimSpace(c.formatText(msg.Text))
+	text := strings.TrimSpace(c.formatText(msg.BodyText()))
 	if text != "" {
 		parts = append(parts, text)
 	}

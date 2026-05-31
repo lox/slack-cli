@@ -54,7 +54,7 @@ func (c *ThreadReadCmd) Run(ctx *Context) error {
 
 	for _, msg := range replies.Messages {
 		user := resolver.ResolveUser(msg.User)
-		fmt.Printf("[%s] %s: %s\n", msg.TS, user, resolver.FormatText(msg.Text))
+		fmt.Printf("[%s] %s: %s\n", msg.TS, user, resolver.FormatText(msg.BodyText()))
 	}
 
 	return nil
@@ -71,7 +71,7 @@ func (c *ThreadReadCmd) formatRepliesAsMarkdown(messages []slack.Message, resolv
 
 	for i, msg := range messages {
 		username := resolver.ResolveUser(msg.User)
-		text := resolver.FormatText(msg.Text)
+		text := resolver.FormatText(msg.BodyText())
 
 		if i == 0 {
 			fmt.Fprintf(&sb, "**%s** _%s_\n\n", username, msg.TS)

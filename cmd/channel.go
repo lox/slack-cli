@@ -87,7 +87,7 @@ func (c *ChannelReadCmd) Run(ctx *Context) error {
 	for i := len(history.Messages) - 1; i >= 0; i-- {
 		msg := history.Messages[i]
 		user := resolver.ResolveUser(msg.User)
-		fmt.Printf("[%s] %s: %s\n", msg.TS, user, resolver.FormatText(msg.Text))
+		fmt.Printf("[%s] %s: %s\n", msg.TS, user, resolver.FormatText(msg.BodyText()))
 	}
 
 	return nil
@@ -99,7 +99,7 @@ func (c *ChannelReadCmd) formatHistoryAsMarkdown(messages []slack.Message, resol
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
 		username := resolver.ResolveUser(msg.User)
-		text := resolver.FormatText(msg.Text)
+		text := resolver.FormatText(msg.BodyText())
 
 		fmt.Fprintf(&sb, "**%s** _%s_\n\n", username, msg.TS)
 		fmt.Fprintf(&sb, "%s\n\n", text)

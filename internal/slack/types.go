@@ -36,6 +36,7 @@ type Attachment struct {
 
 type Block struct {
 	Type     string     `json:"type"`
+	Text     *BlockText `json:"text,omitempty"`
 	ImageURL string     `json:"image_url,omitempty"`
 	AltText  string     `json:"alt_text,omitempty"`
 	Title    *BlockText `json:"title,omitempty"`
