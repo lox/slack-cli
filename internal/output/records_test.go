@@ -129,7 +129,6 @@ func TestMessageConverterPopulatesFields(t *testing.T) {
 	conv := MessageConverter{
 		Channel:   &ChannelRef{ID: "C1", Name: "general", Type: "channel"},
 		Workspace: "example.slack.com",
-		Verbose:   true,
 	}
 	got := conv.Convert(slack.Message{
 		Type:       "message",
@@ -150,7 +149,7 @@ func TestMessageConverterPopulatesFields(t *testing.T) {
 		t.Fatalf("unexpected message: %+v", got)
 	}
 	if got.TextRaw != "hello <@U2>" {
-		t.Fatalf("expected raw text preserved under verbose, got %q", got.TextRaw)
+		t.Fatalf("expected raw text preserved, got %q", got.TextRaw)
 	}
 	if got.Text != got.TextRaw {
 		t.Fatalf("expected text == raw when resolver is nil, got %q vs %q", got.Text, got.TextRaw)
@@ -159,14 +158,14 @@ func TestMessageConverterPopulatesFields(t *testing.T) {
 		t.Fatalf("expected workspace populated, got %q", got.Workspace)
 	}
 	if got.Channel == nil || got.Channel.ID != "C1" {
-		t.Fatalf("expected channel ref under verbose, got %+v", got.Channel)
+		t.Fatalf("expected channel ref, got %+v", got.Channel)
 	}
 	if len(got.Files) != 1 || got.Files[0].ID != "F1" {
 		t.Fatalf("expected one file ref, got %+v", got.Files)
 	}
 }
 
-func TestMessageConverterCompactOmitsScopeAndType(t *testing.T) {
+func TestMessageConverterIncludesScopeAndType(t *testing.T) {
 	conv := MessageConverter{
 		Channel: &ChannelRef{ID: "D1", Type: "im"},
 	}
@@ -176,14 +175,14 @@ func TestMessageConverterCompactOmitsScopeAndType(t *testing.T) {
 		Text: "hi",
 		TS:   "100",
 	})
-	if got.Channel != nil {
-		t.Fatalf("expected scope channel omitted in compact shape, got %+v", got.Channel)
+	if got.Channel == nil || got.Channel.ID != "D1" || got.Channel.Type != "im" {
+		t.Fatalf("expected scope channel included, got %+v", got.Channel)
 	}
-	if got.Type != "" {
-		t.Fatalf("expected type omitted in compact shape, got %q", got.Type)
+	if got.Type != "message" {
+		t.Fatalf("expected type included, got %q", got.Type)
 	}
-	if got.TextRaw != "" {
-		t.Fatalf("expected text_raw omitted in compact shape, got %q", got.TextRaw)
+	if got.TextRaw != "hi" {
+		t.Fatalf("expected text_raw included, got %q", got.TextRaw)
 	}
 }
 
@@ -196,7 +195,7 @@ func TestMessageConverterPreservesSubtype(t *testing.T) {
 		TS:      "100",
 	})
 	if got.Subtype != "bot_message" {
-		t.Fatalf("expected subtype preserved in compact shape, got %q", got.Subtype)
+		t.Fatalf("expected subtype preserved, got %q", got.Subtype)
 	}
 }
 

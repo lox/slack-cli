@@ -8,11 +8,10 @@ import (
 )
 
 type SearchCmd struct {
-	Query   string `arg:"" help:"Search query (supports Slack search syntax: from:@user, in:#channel, etc.)"`
-	Limit   int    `help:"Maximum number of results" default:"20"`
-	JSON    bool   `help:"Output as pretty JSON array" short:"j" xor:"format"`
-	JSONL   bool   `help:"Output as JSON Lines, one match per line" xor:"format"`
-	Verbose bool   `help:"Emit full JSON records (restore type and text_raw)" short:"V"`
+	Query string `arg:"" help:"Search query (supports Slack search syntax: from:@user, in:#channel, etc.)"`
+	Limit int    `help:"Maximum number of results" default:"20"`
+	JSON  bool   `help:"Output as pretty JSON array" short:"j" xor:"format"`
+	JSONL bool   `help:"Output as JSON Lines, one match per line" xor:"format"`
 }
 
 func (c *SearchCmd) Run(ctx *Context) error {
@@ -67,7 +66,7 @@ func (c *SearchCmd) emitStructured(resolver *slack.Resolver, resp *slack.SearchR
 			if i >= len(resp.Messages.Matches) {
 				return output.Message{}, false, nil
 			}
-			m := searchMatchToMessage(resolver, resp.Messages.Matches[i], c.Verbose)
+			m := searchMatchToMessage(resolver, resp.Messages.Matches[i])
 			i++
 			return m, true, nil
 		})
@@ -75,12 +74,12 @@ func (c *SearchCmd) emitStructured(resolver *slack.Resolver, resp *slack.SearchR
 
 	records := make([]output.Message, 0, len(resp.Messages.Matches))
 	for _, match := range resp.Messages.Matches {
-		records = append(records, searchMatchToMessage(resolver, match, c.Verbose))
+		records = append(records, searchMatchToMessage(resolver, match))
 	}
 	return output.EmitJSON(records)
 }
 
-func searchMatchToMessage(resolver *slack.Resolver, match slack.SearchMatch, verbose bool) output.Message {
+func searchMatchToMessage(resolver *slack.Resolver, match slack.SearchMatch) output.Message {
 	var workspace string
 	if match.Permalink != "" {
 		host, _, err := slack.ExtractWorkspaceRef(match.Permalink)
@@ -101,17 +100,15 @@ func searchMatchToMessage(resolver *slack.Resolver, match slack.SearchMatch, ver
 
 	rec := output.Message{
 		TS:        match.TS,
+		Type:      match.Type,
 		Subtype:   match.Subtype,
 		User:      display,
 		UserID:    match.User,
 		Text:      text,
+		TextRaw:   match.Text,
 		Channel:   output.ChannelRefFromID(resolver, match.Channel.ID, match.Channel.Name),
 		Workspace: workspace,
 		Permalink: match.Permalink,
-	}
-	if verbose {
-		rec.Type = match.Type
-		rec.TextRaw = match.Text
 	}
 	return rec
 }

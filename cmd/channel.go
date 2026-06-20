@@ -68,7 +68,6 @@ type ChannelReadCmd struct {
 	Markdown bool   `help:"Output as markdown" short:"m" xor:"format"`
 	JSON     bool   `help:"Output as pretty JSON array, oldest first" short:"j" xor:"format"`
 	JSONL    bool   `help:"Output as JSON Lines, oldest first" xor:"format"`
-	Verbose  bool   `help:"Emit full JSON records (restore type, text_raw, and scope channel)" short:"V"`
 }
 
 func (c *ChannelReadCmd) Run(ctx *Context) error {
@@ -109,7 +108,7 @@ func (c *ChannelReadCmd) Run(ctx *Context) error {
 
 	if c.JSON || c.JSONL {
 		chRef := output.ChannelRefFromID(resolver, channelID, channelName)
-		conv := output.MessageConverter{Resolver: resolver, Channel: chRef, Verbose: c.Verbose}
+		conv := output.MessageConverter{Resolver: resolver, Channel: chRef}
 		ordered := slices.Clone(history.Messages)
 		slices.Reverse(ordered)
 		if c.JSONL {
@@ -241,4 +240,3 @@ func parseChannelReference(channel string) (channelID string, urlHint string, er
 func isSlackChannelID(channelID string) bool {
 	return strings.HasPrefix(channelID, "C") || strings.HasPrefix(channelID, "G") || strings.HasPrefix(channelID, "D")
 }
-

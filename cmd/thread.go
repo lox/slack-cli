@@ -20,7 +20,6 @@ type ThreadReadCmd struct {
 	Markdown  bool   `help:"Output as markdown" short:"m" xor:"format"`
 	JSON      bool   `help:"Output as pretty JSON array, parent first" short:"j" xor:"format"`
 	JSONL     bool   `help:"Output as JSON Lines, parent first" xor:"format"`
-	Verbose   bool   `help:"Emit full JSON records (restore type, text_raw, scope channel, and scope thread_ts)" short:"V"`
 }
 
 func (c *ThreadReadCmd) Run(ctx *Context) error {
@@ -59,30 +58,21 @@ func (c *ThreadReadCmd) Run(ctx *Context) error {
 			}
 		}
 		chRef := output.ChannelRefFromID(resolver, channelID, "")
-		conv := output.MessageConverter{Resolver: resolver, Channel: chRef, Workspace: workspace, Verbose: c.Verbose}
-		// thread_ts on every record just restates the command scope in compact
-		// mode, so drop it post-convert when we are not emitting the full shape.
-		convertOne := func(m slack.Message) output.Message {
-			rec := conv.Convert(m)
-			if !c.Verbose {
-				rec.ThreadTS = ""
-			}
-			return rec
-		}
+		conv := output.MessageConverter{Resolver: resolver, Channel: chRef, Workspace: workspace}
 		if c.JSONL {
 			i := 0
 			return output.EmitJSONLStream(func() (output.Message, bool, error) {
 				if i >= len(replies.Messages) {
 					return output.Message{}, false, nil
 				}
-				m := convertOne(replies.Messages[i])
+				m := conv.Convert(replies.Messages[i])
 				i++
 				return m, true, nil
 			})
 		}
 		records := make([]output.Message, 0, len(replies.Messages))
 		for _, m := range replies.Messages {
-			records = append(records, convertOne(m))
+			records = append(records, conv.Convert(m))
 		}
 		return output.EmitJSON(records)
 	}
