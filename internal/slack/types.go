@@ -1,5 +1,7 @@
 package slack
 
+import "encoding/json"
+
 type Message struct {
 	Type        string       `json:"type"`
 	Subtype     string       `json:"subtype,omitempty"`
@@ -60,6 +62,16 @@ type Block struct {
 type BlockText struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+}
+
+func (t *BlockText) UnmarshalJSON(data []byte) error {
+	if len(data) > 0 && data[0] == '"' {
+		t.Type = "plain_text"
+		return json.Unmarshal(data, &t.Text)
+	}
+
+	type blockText BlockText
+	return json.Unmarshal(data, (*blockText)(t))
 }
 
 type RepliesResponse struct {
