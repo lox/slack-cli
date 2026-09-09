@@ -1,14 +1,110 @@
 package slack
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestRequestRetriesRateLimitsAndReplaysPOSTBody(t *testing.T) {
+	calls := 0
+	var waits []time.Duration
+	client := &Client{
+		userToken: "xoxp-test-token",
+		sleep: func(duration time.Duration) {
+			waits = append(waits, duration)
+		},
+		httpClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				calls++
+				body, err := io.ReadAll(req.Body)
+				if err != nil {
+					t.Fatalf("read request body: %v", err)
+				}
+				if got, want := string(body), "value=hello"; got != want {
+					t.Fatalf("request body on call %d = %q, want %q", calls, got, want)
+				}
+				if calls < 3 {
+					return &http.Response{
+						StatusCode: http.StatusTooManyRequests,
+						Status:     "429 Too Many Requests",
+						Header:     http.Header{"Retry-After": []string{fmt.Sprint(calls * 2)}},
+						Body:       io.NopCloser(strings.NewReader("rate limited")),
+						Request:    req,
+					}, nil
+				}
+				return jsonResponse(req, `{"ok":true}`)
+			}),
+		},
+	}
+
+	if _, err := client.requestPost("test.method", url.Values{"value": {"hello"}}); err != nil {
+		t.Fatalf("requestPost returned error: %v", err)
+	}
+	if want := []time.Duration{2 * time.Second, 4 * time.Second}; !slices.Equal(waits, want) {
+		t.Errorf("retry waits = %v, want %v", waits, want)
+	}
+}
+
+func TestRequestRetryPolicy(t *testing.T) {
+	transportErr := errors.New("connection failed")
+	tests := []struct {
+		name         string
+		status       int
+		retryAfter   string
+		transportErr error
+		wantCalls    int
+		wantWaits    int
+		wantError    string
+	}{
+		{name: "exhausted", status: 429, retryAfter: "0", wantCalls: 4, wantWaits: 3, wantError: "rate limited after 3 retries"},
+		{name: "invalid Retry-After", status: 429, retryAfter: "later", wantCalls: 1, wantError: "valid Retry-After"},
+		{name: "server error", status: 500, wantCalls: 1, wantError: "HTTP 500"},
+		{name: "transport error", transportErr: transportErr, wantCalls: 1, wantError: "connection failed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls, waits := 0, 0
+			client := &Client{
+				sleep: func(time.Duration) { waits++ },
+				httpClient: &http.Client{
+					Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+						calls++
+						if calls > tt.wantCalls {
+							t.Fatalf("unexpected attempt %d, want at most %d", calls, tt.wantCalls)
+						}
+						if tt.transportErr != nil {
+							return nil, tt.transportErr
+						}
+						return &http.Response{
+							StatusCode: tt.status,
+							Header:     http.Header{"Retry-After": []string{tt.retryAfter}},
+							Body:       http.NoBody,
+							Request:    req,
+						}, nil
+					}),
+				},
+			}
+			_, err := client.request("test.method", nil)
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("request error = %v, want %q", err, tt.wantError)
+			}
+			if tt.transportErr != nil && !errors.Is(err, tt.transportErr) {
+				t.Errorf("request error = %v, want wrapped transport error", err)
+			}
+			if calls != tt.wantCalls || waits != tt.wantWaits {
+				t.Errorf("calls/waits = %d/%d, want %d/%d", calls, waits, tt.wantCalls, tt.wantWaits)
+			}
+		})
+	}
+}
 
 func TestParseThreadURL(t *testing.T) {
 	t.Run("message permalink uses message timestamp", func(t *testing.T) {

@@ -9,15 +9,22 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/buildkite/roko"
 )
 
-const slackAPIBase = "https://slack.com/api"
+const (
+	slackAPIBase        = "https://slack.com/api"
+	maxRateLimitRetries = 3
+)
 
 type Client struct {
 	userToken  string
 	httpClient *http.Client
+	sleep      func(time.Duration)
 }
 
 type APIError struct {
@@ -71,8 +78,6 @@ func (c *Client) requestPost(method string, params url.Values) ([]byte, error) {
 
 func (c *Client) requestWithMethod(httpMethod, method string, params url.Values) ([]byte, error) {
 	requestURL := slackAPIBase + "/" + method
-
-	var bodyReader io.Reader
 	if params == nil {
 		params = url.Values{}
 	}
@@ -81,21 +86,50 @@ func (c *Client) requestWithMethod(httpMethod, method string, params url.Values)
 		requestURL += "?" + params.Encode()
 	}
 
-	if httpMethod == http.MethodPost {
-		bodyReader = strings.NewReader(params.Encode())
-	}
+	retrier := roko.NewRetrier(
+		roko.WithMaxAttempts(maxRateLimitRetries+1),
+		roko.WithStrategy(roko.Constant(0)),
+		roko.WithSleepFunc(c.sleep),
+	)
+	var resp *http.Response
+	err := retrier.Do(func(r *roko.Retrier) error {
+		var bodyReader io.Reader
+		if httpMethod == http.MethodPost {
+			bodyReader = strings.NewReader(params.Encode())
+		}
 
-	req, err := http.NewRequest(httpMethod, requestURL, bodyReader)
+		req, err := http.NewRequest(httpMethod, requestURL, bodyReader)
+		if err != nil {
+			r.Break()
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Authorization", "Bearer "+c.userToken)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		resp, err = c.httpClient.Do(req)
+		if err != nil {
+			r.Break()
+			return fmt.Errorf("failed to send request: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusTooManyRequests {
+			return nil
+		}
+		retryAfter, retryErr := parseRetryAfter(resp.Header.Get("Retry-After"))
+		if err := resp.Body.Close(); err != nil {
+			r.Break()
+			return fmt.Errorf("failed to close rate-limited response: %w", err)
+		}
+		if retryErr != nil {
+			r.Break()
+			return fmt.Errorf("slack API returned HTTP 429 without a valid Retry-After header: %w", retryErr)
+		}
+		r.SetNextInterval(retryAfter)
+		return fmt.Errorf("slack API remained rate limited after %d retries", maxRateLimitRetries)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.userToken)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
@@ -121,6 +155,14 @@ func (c *Client) requestWithMethod(httpMethod, method string, params url.Values)
 	}
 
 	return body, nil
+}
+
+func parseRetryAfter(value string) (time.Duration, error) {
+	seconds, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || seconds < 0 {
+		return 0, fmt.Errorf("invalid duration %q", value)
+	}
+	return time.Duration(seconds) * time.Second, nil
 }
 
 func (c *Client) DownloadPrivateFile(fileURL string, maxBytes int) ([]byte, string, error) {
