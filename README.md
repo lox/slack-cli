@@ -83,6 +83,36 @@ slack-cli --workspace buildkite.slack.com auth login
 
 `auth login` also supports `--client-id` and `--client-secret`.
 
+### Remote login through an OAuth broker
+
+For an orb or remote machine without a local browser callback, use an HTTPS
+OAuth broker operated by your organisation:
+
+```bash
+slack-cli --workspace T0123456789 auth login \
+  --auth-server https://auth.example.com --no-browser
+```
+
+Open the printed URL on your own machine and enter the confirmation code shown
+by the CLI. Only approve sessions you started. The CLI waits up to ten minutes,
+validates the returned token with Slack, and saves it in the normal private
+config. For a new workspace, pass its exact Slack team ID; a configured workspace
+host also works when its team ID is already saved. Use `--replace` to replace an
+existing login without prompting.
+
+`SLACK_AUTH_SERVER` can supply the broker origin instead of `--auth-server`.
+Trust the operator of this URL: the broker handles your Slack user token.
+The broker retains the Slack app client secret; the CLI and orb still receive
+your user token and can access the Slack data its scopes permit. Broker login
+does not use or save app credentials, and cannot be combined with `--client-id`
+or `--client-secret`. Without an auth server, the existing localhost OAuth flow
+is unchanged. `--no-browser` only suppresses opening a browser; it does not make
+the localhost callback usable from another machine.
+
+Token delivery is one-time. If the connection fails during delivery, or token
+validation/storage fails afterwards, start a new login rather than retrying the
+old session. Broker sessions also expire or disappear when the broker restarts.
+
 ## Usage
 
 ### View any Slack URL
