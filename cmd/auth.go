@@ -11,11 +11,14 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/lox/slack-cli/internal/authbroker"
 	"github.com/lox/slack-cli/internal/config"
 	"github.com/lox/slack-cli/internal/slack"
 )
@@ -208,6 +211,8 @@ func resetAllAuth(cfg *config.Config) {
 type AuthLoginCmd struct {
 	ClientID     string `help:"Slack app client ID"`
 	ClientSecret string `help:"Slack app client secret"`
+	AuthServer   string `help:"Trusted HTTPS OAuth broker origin (for remote login)" env:"SLACK_AUTH_SERVER"`
+	NoBrowser    bool   `help:"Print the authentication URL without opening a browser"`
 	Replace      bool   `help:"Replace existing login for the target workspace"`
 	AddNew       bool   `help:"Add another workspace instead of replacing current login"`
 }
@@ -215,6 +220,9 @@ type AuthLoginCmd struct {
 func (c *AuthLoginCmd) Run(ctx *Context) error {
 	if c.Replace && c.AddNew {
 		return fmt.Errorf("--replace and --add-new cannot be used together")
+	}
+	if c.AuthServer != "" && (c.ClientID != "" || c.ClientSecret != "") {
+		return fmt.Errorf("--auth-server cannot be combined with --client-id or --client-secret")
 	}
 
 	reader := bufio.NewReader(os.Stdin)
@@ -251,6 +259,10 @@ func (c *AuthLoginCmd) Run(ctx *Context) error {
 		if workspaceRef == "" {
 			return fmt.Errorf("no current workspace to replace; pass --workspace or omit --replace")
 		}
+	}
+
+	if c.AuthServer != "" {
+		return c.loginWithBroker(ctx, workspaceRef, replace, reader)
 	}
 
 	clientID, clientSecret, resolvedWorkspace, found, err := getOAuthCredentials(ctx.Config, workspaceRef, c.ClientID, c.ClientSecret, useCurrentWorkspaceCredentials)
@@ -382,7 +394,9 @@ func (c *AuthLoginCmd) Run(ctx *Context) error {
 	fmt.Printf("If browser doesn't open, visit:\n%s\n\n", authURL)
 
 	// Open browser
-	openBrowser(authURL)
+	if !c.NoBrowser {
+		openBrowser(authURL)
+	}
 
 	// Wait for callback or timeout
 	select {
@@ -398,14 +412,64 @@ func (c *AuthLoginCmd) Run(ctx *Context) error {
 	}
 }
 
+func brokerTeamID(cfg *config.Config, workspace string) (string, error) {
+	if workspace != "" {
+		if key, err := cfg.ResolveWorkspace(workspace); err == nil {
+			if teamID := cfg.Workspaces[key].TeamID; teamID != "" {
+				workspace = teamID
+			}
+		}
+	}
+	if !regexp.MustCompile(`^T[A-Z0-9]+$`).MatchString(workspace) {
+		return "", fmt.Errorf("broker login requires --workspace with a Slack team ID (T…) or a configured workspace with a saved team ID")
+	}
+	return workspace, nil
+}
+
+func (c *AuthLoginCmd) loginWithBroker(ctx *Context, workspace string, replace bool, reader *bufio.Reader) error {
+	teamID, err := brokerTeamID(ctx.Config, workspace)
+	if err != nil {
+		return err
+	}
+	broker, err := authbroker.New(c.AuthServer)
+	if err != nil {
+		return err
+	}
+	loginCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+	token, err := broker.Login(loginCtx, teamID, func(session authbroker.Session) error {
+		_, err := fmt.Fprintf(os.Stderr, "Open this URL in your browser:\n%s\n\nEnter confirmation code: %s\nOnly approve a login you started. Waiting for Slack authorisation…\n", session.BrowserURL, session.ConfirmationCode)
+		if err != nil {
+			return err
+		}
+		if !c.NoBrowser {
+			openBrowser(session.BrowserURL)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if err := c.saveLogin(ctx, token, "", "", replace, c.AddNew, teamID, teamID, reader); err != nil {
+		return fmt.Errorf("broker token could not be saved; start a new login: %w", err)
+	}
+	return nil
+}
+
 func (c *AuthLoginCmd) exchangeCodeForToken(ctx *Context, code, clientID, clientSecret string, replace bool, addNew bool, requestedWorkspace, resolvedWorkspace string, reader *bufio.Reader) error {
 	token, err := slack.ExchangeOAuthCode(clientID, clientSecret, code, oauthRedirectURL)
 	if err != nil {
 		return fmt.Errorf("failed to exchange code for token: %w", err)
 	}
+	return c.saveLogin(ctx, token, clientID, clientSecret, replace, addNew, requestedWorkspace, resolvedWorkspace, reader)
+}
 
+func (c *AuthLoginCmd) saveLogin(ctx *Context, token, clientID, clientSecret string, replace bool, addNew bool, requestedWorkspace, resolvedWorkspace string, reader *bufio.Reader) error {
 	// Verify the token works
 	client := slack.NewClient(token)
+	if ctx.ClientFactory != nil {
+		client = ctx.ClientFactory(token)
+	}
 	user, err := client.AuthTest()
 	if err != nil {
 		return fmt.Errorf("token validation failed: %w", err)
